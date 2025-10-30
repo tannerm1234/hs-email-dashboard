@@ -23,3 +23,10 @@ One-folder Next.js app. Read-only. Shows:
 - v1 excludes Sales Sequences.
 - "Refresh now" endpoint simply forces a rebuild on Vercel; pages use server-side fetch on each request here.
 - This is read-only. No write scopes needed.
+
+## API limits
+If you hit 429s on HubSpot:
+- In Vercel > Settings > Environment Variables, add:
+  - `API_DELAY_MS` = 250 (or 500)
+  - `MAX_WORKFLOWS` = 150 (to cap detail fetch on first load)
+- Redeploy, then visit `/api/debug` to confirm counts.
