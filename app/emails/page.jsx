@@ -1,7 +1,7 @@
 import { fetchInventory } from '../../lib/hubspot';
 import Table from '../table';
 
-export const revalidate = 0; // always fresh; refresh route also available
+export const revalidate = 0;
 
 export default async function EmailsPage() {
   const { emailsRows } = await fetchInventory();
@@ -16,7 +16,7 @@ export default async function EmailsPage() {
   ];
   return (
     <main>
-      <h1 style={{fontSize:'22px', marginBottom:'8px'}}>Emails → Usage</h1>
+      <h1 style={{fontSize:'22px', marginBottom:'8px'}}>Emails</h1>
       <div style={{display:'flex', gap:'12px', marginBottom:'12px'}}>
         <a href="/" style={{textDecoration:'underline'}}>View by Workflow</a>
         <a href="/api/refresh" style={{textDecoration:'underline'}}>Refresh now</a>
