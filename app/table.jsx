@@ -42,9 +42,16 @@ export default function Table({ columns, rows, searchKeys, showActiveToggle=fals
           <tbody>
             {filtered.map((r,i)=>(
               <tr key={i} style={{background:i%2 ? '#0b0b0b' : 'transparent'}}>
-                {columns.map(([key]) => (
-                  <td key={key} style={{padding:'8px 12px', verticalAlign:'top'}}>{String(r[key] ?? '')}</td>
-                ))}
+                {columns.map(([key]) => {
+                  const val = r[key];
+                  const text = Array.isArray(val) ? val.join(', ') : String(val ?? '');
+                  const isUrl = typeof val === 'string' && /^https?:\/\//.test(val);
+                  return (
+                    <td key={key} style={{padding:'8px 12px', verticalAlign:'top'}}>
+                      {isUrl ? <a href={val} target="_blank" rel="noreferrer" style={{textDecoration:'underline'}}>{val.includes('/edit/') ? 'Edit' : 'Open'}</a> : text}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>

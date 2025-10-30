@@ -30,3 +30,5 @@ If you hit 429s on HubSpot:
   - `API_DELAY_MS` = 250 (or 500)
   - `MAX_WORKFLOWS` = 150 (to cap detail fetch on first load)
 - Redeploy, then visit `/api/debug` to confirm counts.
+
+- Optional: `HUBSPOT_PORTAL_ID` to enable Edit/Preview links.

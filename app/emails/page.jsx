@@ -6,6 +6,9 @@ export const revalidate = 1800;
 export default async function EmailsPage() {
   const { emailsRows } = await fetchInventory();
   const cols = [
+      ['used_in_workflow_names','Workflows (names)'],
+      ['preview_url','Preview'],
+      ['edit_url','Edit'],
     ['email_name','Email'],
     ['subject','Subject'],
     ['status','Status'],

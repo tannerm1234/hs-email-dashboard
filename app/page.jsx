@@ -13,6 +13,7 @@ export default async function Page() {
     ['action_type','Action Type'],
     ['branch_hint','Branch'],
     ['email_id','Email ID'],
+      ['email_action_count','Email actions in this WF'],
   ];
   return (
     <main>
