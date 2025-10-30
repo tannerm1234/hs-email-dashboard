@@ -2,31 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { DashboardData, HubSpotWorkflow, HubSpotMarketingEmail, EnrollmentStats } from '@/types';
 
 const HUBSPOT_API_BASE = 'https://api.hubapi.com';
-
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function fetchWithRetry(
-  url: string,
-  options: RequestInit,
-  retries = 3
-): Promise<Response> {
+async function fetchWithRetry(url: string, options: RequestInit, retries = 3): Promise<Response> {
   for (let i = 0; i < retries; i++) {
     try {
       const response = await fetch(url, options);
-      
       if (response.status === 429) {
         const retryAfter = response.headers.get('Retry-After');
         const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : 2000 * (i + 1);
-        console.log(`Rate limited, waiting ${waitTime}ms...`);
         await delay(waitTime);
         continue;
       }
-      
       if (!response.ok && i < retries - 1) {
         await delay(1000 * (i + 1));
         continue;
       }
-      
       return response;
     } catch (error) {
       if (i === retries - 1) throw error;
@@ -43,240 +34,135 @@ export async function GET(request: NextRequest) {
     const maxWorkflows = parseInt(process.env.MAX_WORKFLOWS || '25');
     const apiDelay = parseInt(process.env.API_DELAY_MS || '250');
 
-    if (!accessToken) {
-      return NextResponse.json(
-        { error: 'HUBSPOT_TOKEN environment variable is not set' },
-        { status: 500 }
-      );
+    if (!accessToken || !portalId) {
+      return NextResponse.json({ error: 'Missing environment variables' }, { status: 500 });
     }
 
-    if (!portalId) {
-      return NextResponse.json(
-        { error: 'HUBSPOT_PORTAL_ID environment variable is not set' },
-        { status: 500 }
-      );
+    // Step 1: Get all workflows
+    const response = await fetchWithRetry(`${HUBSPOT_API_BASE}/automation/v4/flows?limit=${maxWorkflows}`, {
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch workflows: ${response.statusText}`);
     }
 
-    console.log('Fetching workflows...');
-    
-    // Fetch all workflows
-    const allWorkflows: any[] = [];
-    let hasMore = true;
-    let offset = 0;
-    const limit = 100;
+    const workflowsData = await response.json();
+    const allWorkflows = workflowsData.results || [];
 
-    while (hasMore && allWorkflows.length < maxWorkflows) {
-      const url = `${HUBSPOT_API_BASE}/automation/v4/flows?limit=${limit}&offset=${offset}`;
-      
-      const response = await fetchWithRetry(url, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch workflows: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      
-      if (data.results && data.results.length > 0) {
-        allWorkflows.push(...data.results);
-        hasMore = data.paging?.next?.after ? true : false;
-        offset += limit;
-        
-        if (hasMore && allWorkflows.length < maxWorkflows) {
-          await delay(apiDelay);
-        }
-      } else {
-        hasMore = false;
-      }
-    }
-
-    console.log(`Found ${allWorkflows.length} workflows total`);
-    console.log('First workflow sample:', JSON.stringify(allWorkflows[0], null, 2));
-    console.log('Filtering for marketing email workflows...');
-    
-    // Filter workflows that have marketing email actions
+    // Step 2: For each workflow, get all emails in that workflow
     const workflowsWithEmails: any[] = [];
-    for (const workflow of allWorkflows.slice(0, maxWorkflows)) {
+    const emailIdSet = new Set<string>();
+    const workflowEmailMap = new Map<string, any[]>();
+
+    for (const workflow of allWorkflows) {
       await delay(apiDelay);
       
       try {
-        // Get workflow details
-        const detailsUrl = `${HUBSPOT_API_BASE}/automation/v4/flows/${workflow.id}`;
-        const detailsResponse = await fetchWithRetry(detailsUrl, {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        });
+        // Get all email campaigns for this workflow
+        const emailCampaignsResponse = await fetchWithRetry(
+          `${HUBSPOT_API_BASE}/automation/v4/flows/email-campaigns?flowId=${workflow.id}`,
+          { headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+        );
 
-        if (!detailsResponse.ok) {
-          console.error(`Failed to fetch workflow ${workflow.id}`);
-          continue;
-        }
-
-        const details = await detailsResponse.json();
-        
-        console.log(`Workflow ${workflow.id} (${workflow.name}) - Full actions:`, 
-          JSON.stringify(details.actions, null, 2));
-        
-        // Check if workflow has email actions - check actionTypeId field
-        if (details.actions && Array.isArray(details.actions)) {
-          const hasEmailAction = details.actions.some((action: any) => {
-            const actionTypeId = action.actionTypeId || action.type || '';
-            const actionIdStr = String(actionTypeId).toLowerCase();
-            return actionIdStr.includes('email') || 
-                   actionIdStr.includes('send') ||
-                   action.actionTypeId === 'SEND_MARKETING_EMAIL';
-          });
+        if (emailCampaignsResponse.ok) {
+          const emailCampaignsData = await emailCampaignsResponse.json();
+          const emailCampaigns = emailCampaignsData.results || [];
           
-          if (hasEmailAction) {
-            workflowsWithEmails.push(details);
+          if (emailCampaigns.length > 0) {
+            workflowsWithEmails.push(workflow);
+            workflowEmailMap.set(workflow.id, emailCampaigns);
+            
+            // Collect unique email IDs
+            emailCampaigns.forEach((campaign: any) => {
+              if (campaign.emailCampaignId) {
+                emailIdSet.add(campaign.emailCampaignId.toString());
+              }
+            });
           }
         }
       } catch (error) {
-        console.error(`Error fetching details for workflow ${workflow.id}:`, error);
+        console.error(`Error fetching email campaigns for workflow ${workflow.id}:`, error);
       }
     }
 
-    console.log(`Found ${workflowsWithEmails.length} workflows with marketing emails`);
-
-    // Extract all unique email IDs from workflows
-    const emailIdSet = new Set<string>();
-    const workflowEmailMap = new Map<string, string[]>();
-
-    for (const workflow of workflowsWithEmails) {
-      const emailIds: string[] = [];
-      
-      if (workflow.actions && Array.isArray(workflow.actions)) {
-        for (const action of workflow.actions) {
-          // Check actionTypeId field
-          const actionTypeId = action.actionTypeId || action.type || '';
-          const actionIdStr = String(actionTypeId).toLowerCase();
-          const isEmailAction = actionIdStr.includes('email') || actionIdStr.includes('send');
-          
-          if (isEmailAction) {
-            // Email ID might be in fields object or directly on action
-            const emailId = action.emailId || 
-                           action.emailCampaignId || 
-                           action.campaignId || 
-                           action.fields?.emailId ||
-                           action.fields?.emailCampaignId ||
-                           action.fields?.email_id;
-            
-            if (emailId) {
-              emailIds.push(emailId.toString());
-              console.log(`Found email ID ${emailId} in workflow ${workflow.id} actionTypeId: ${actionTypeId}`);
-            } else {
-              console.log(`Email action found but no ID in workflow ${workflow.id}. Action:`, JSON.stringify(action, null, 2));
-            }
-          }
-        }
-      }
-      
-      workflowEmailMap.set(workflow.id, emailIds);
-      emailIds.forEach(id => emailIdSet.add(id));
-    }
-
-    console.log(`Found ${emailIdSet.size} unique marketing emails`);
-
-    // Fetch email details
+    // Step 3: Get detailed info for each unique email
     const emailDetails: any[] = [];
     for (const emailId of Array.from(emailIdSet)) {
       await delay(apiDelay);
       
       try {
-        const emailUrl = `${HUBSPOT_API_BASE}/marketing/v3/emails/${emailId}`;
-        const emailResponse = await fetchWithRetry(emailUrl, {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        });
+        const emailResponse = await fetchWithRetry(
+          `${HUBSPOT_API_BASE}/marketing/v3/emails/${emailId}?includeStats=true`,
+          { headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+        );
 
         if (emailResponse.ok) {
-          const email = await emailResponse.json();
-          emailDetails.push(email);
-        } else {
-          console.error(`Failed to fetch email ${emailId}`);
+          emailDetails.push(await emailResponse.json());
         }
       } catch (error) {
         console.error(`Error fetching email ${emailId}:`, error);
       }
     }
 
-    console.log(`Successfully fetched ${emailDetails.length} email details`);
-
-    // Create email to workflow mapping
-    const emailToWorkflowsMap = new Map<string, string[]>();
-    for (const [workflowId, emailIds] of workflowEmailMap.entries()) {
-      for (const emailId of emailIds) {
-        if (!emailToWorkflowsMap.has(emailId)) {
-          emailToWorkflowsMap.set(emailId, []);
-        }
-        emailToWorkflowsMap.get(emailId)!.push(workflowId);
-      }
-    }
-
-    // Fetch enrollment stats
-    console.log('Fetching enrollment statistics...');
+    // Step 4: Fetch enrollment stats
     const enrollmentStats: EnrollmentStats[] = [];
     for (const workflow of workflowsWithEmails) {
       await delay(apiDelay);
       
       try {
         const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-        const enrollUrl = `${HUBSPOT_API_BASE}/automation/v4/flows/${workflow.id}/enrollments?limit=100&enrolledAfter=${sevenDaysAgo}`;
-        
-        const enrollResponse = await fetchWithRetry(enrollUrl, {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        });
+        const enrollResponse = await fetchWithRetry(
+          `${HUBSPOT_API_BASE}/automation/v4/flows/${workflow.id}/enrollments?limit=100&enrolledAfter=${sevenDaysAgo}`,
+          { headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+        );
 
         if (enrollResponse.ok) {
           const enrollData = await enrollResponse.json();
-          enrollmentStats.push({
-            workflowId: workflow.id,
-            last7Days: enrollData.total || 0,
-          });
+          enrollmentStats.push({ workflowId: workflow.id, last7Days: enrollData.total || 0 });
         } else {
-          enrollmentStats.push({
-            workflowId: workflow.id,
-            last7Days: 0,
-          });
+          enrollmentStats.push({ workflowId: workflow.id, last7Days: 0 });
         }
       } catch (error) {
-        console.error(`Error fetching enrollments for workflow ${workflow.id}:`, error);
-        enrollmentStats.push({
-          workflowId: workflow.id,
-          last7Days: 0,
-        });
+        enrollmentStats.push({ workflowId: workflow.id, last7Days: 0 });
       }
     }
 
-    // Format workflow data
+    // Step 5: Create email to workflow mapping
+    const emailToWorkflowsMap = new Map<string, string[]>();
+    for (const [workflowId, emailCampaigns] of workflowEmailMap.entries()) {
+      for (const campaign of emailCampaigns) {
+        const emailId = campaign.emailCampaignId?.toString();
+        if (emailId) {
+          if (!emailToWorkflowsMap.has(emailId)) {
+            emailToWorkflowsMap.set(emailId, []);
+          }
+          emailToWorkflowsMap.get(emailId)!.push(workflowId);
+        }
+      }
+    }
+
+    // Step 6: Format workflow data
     const workflows: HubSpotWorkflow[] = workflowsWithEmails.map(workflow => {
-      const emailIds = workflowEmailMap.get(workflow.id) || [];
+      const emailCampaigns = workflowEmailMap.get(workflow.id) || [];
+      const emailIds = emailCampaigns
+        .map(c => c.emailCampaignId?.toString())
+        .filter((id): id is string => !!id);
       
       return {
         id: workflow.id,
         name: workflow.name || 'Unnamed Workflow',
         type: workflow.type || 'UNKNOWN',
-        enabled: workflow.enabled || false,
-        insertedAt: workflow.insertedAt || 0,
-        updatedAt: workflow.updatedAt || 0,
-        lastExecutedAt: workflow.lastExecutedAt,
+        enabled: workflow.isEnabled || false,
+        insertedAt: new Date(workflow.createdAt).getTime(),
+        updatedAt: new Date(workflow.updatedAt).getTime(),
+        lastExecutedAt: undefined,
         marketingEmailCount: emailIds.length,
         marketingEmailIds: emailIds,
       };
     });
 
-    // Format email data
+    // Step 7: Format email data
     const emails: HubSpotMarketingEmail[] = emailDetails.map(email => {
       const workflowIds = emailToWorkflowsMap.get(email.id.toString()) || [];
       const workflowNames = workflowIds
@@ -295,15 +181,9 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    const dashboardData: DashboardData = {
-      workflows,
-      emails,
-      enrollmentStats,
-    };
-
-    console.log('Dashboard data prepared successfully');
-
+    const dashboardData: DashboardData = { workflows, emails, enrollmentStats };
     return NextResponse.json(dashboardData);
+    
   } catch (error) {
     console.error('Error in dashboard API:', error);
     return NextResponse.json(
