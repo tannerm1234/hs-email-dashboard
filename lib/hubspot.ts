@@ -2,7 +2,7 @@ const HUBSPOT_API_BASE = 'https://api.hubapi.com';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-export async function fetchWithRetry(
+async function fetchWithRetry(
   url: string,
   options: RequestInit,
   retries = 3
