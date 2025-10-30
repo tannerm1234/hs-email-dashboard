@@ -33,7 +33,7 @@ async function fetchWithRetry(
   throw new Error('Max retries exceeded');
 }
 
-export async function getAllWorkflows(
+async function getAllWorkflows(
   accessToken: string,
   maxWorkflows: number,
   apiDelay: number
@@ -75,7 +75,7 @@ export async function getAllWorkflows(
   return allWorkflows.slice(0, maxWorkflows);
 }
 
-export async function getWorkflowDetails(
+async function getWorkflowDetails(
   workflowId: string,
   accessToken: string
 ): Promise<any> {
@@ -95,7 +95,7 @@ export async function getWorkflowDetails(
   return response.json();
 }
 
-export async function getWorkflowEnrollments(
+async function getWorkflowEnrollments(
   workflowId: string,
   accessToken: string
 ): Promise<number> {
@@ -123,7 +123,7 @@ export async function getWorkflowEnrollments(
   }
 }
 
-export async function getMarketingEmail(
+async function getMarketingEmail(
   emailId: string,
   accessToken: string
 ): Promise<any> {
@@ -143,7 +143,7 @@ export async function getMarketingEmail(
   return response.json();
 }
 
-export function extractMarketingEmailIds(workflow: any): string[] {
+function extractMarketingEmailIds(workflow: any): string[] {
   const emailIds: string[] = [];
   
   if (!workflow.actions || !Array.isArray(workflow.actions)) {
@@ -159,10 +159,19 @@ export function extractMarketingEmailIds(workflow: any): string[] {
   return emailIds;
 }
 
-export function hasMarketingEmailActions(workflow: any): boolean {
+function hasMarketingEmailActions(workflow: any): boolean {
   if (!workflow.actions || !Array.isArray(workflow.actions)) {
     return false;
   }
 
   return workflow.actions.some((action: any) => action.type === 'SEND_MARKETING_EMAIL');
 }
+
+export {
+  getAllWorkflows,
+  getWorkflowDetails,
+  getWorkflowEnrollments,
+  getMarketingEmail,
+  extractMarketingEmailIds,
+  hasMarketingEmailActions
+};
