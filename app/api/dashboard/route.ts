@@ -120,17 +120,17 @@ export async function GET(request: NextRequest) {
 
         const details = await detailsResponse.json();
         
-        console.log(`Workflow ${workflow.id} (${workflow.name}) actions:`, 
-          details.actions?.map((a: any) => `${a.type} (${a.actionType || 'no actionType'})`).join(', ') || 'NO ACTIONS');
+        console.log(`Workflow ${workflow.id} (${workflow.name}) - Full actions:`, 
+          JSON.stringify(details.actions, null, 2));
         
-        // Check if workflow has marketing email actions - try multiple possible action types
+        // Check if workflow has email actions - check actionTypeId field
         if (details.actions && Array.isArray(details.actions)) {
           const hasEmailAction = details.actions.some((action: any) => {
-            const actionType = action.type || action.actionType || '';
-            return actionType.toLowerCase().includes('email') || 
-                   actionType.toLowerCase().includes('send') ||
-                   actionType === 'SEND_MARKETING_EMAIL' ||
-                   actionType === 'SEND_EMAIL';
+            const actionTypeId = action.actionTypeId || action.type || '';
+            const actionIdStr = String(actionTypeId).toLowerCase();
+            return actionIdStr.includes('email') || 
+                   actionIdStr.includes('send') ||
+                   action.actionTypeId === 'SEND_MARKETING_EMAIL';
           });
           
           if (hasEmailAction) {
@@ -153,19 +153,25 @@ export async function GET(request: NextRequest) {
       
       if (workflow.actions && Array.isArray(workflow.actions)) {
         for (const action of workflow.actions) {
-          // Check multiple possible fields where email ID might be stored
-          const actionType = action.type || action.actionType || '';
-          const isEmailAction = actionType.toLowerCase().includes('email') || 
-                               actionType.toLowerCase().includes('send');
+          // Check actionTypeId field
+          const actionTypeId = action.actionTypeId || action.type || '';
+          const actionIdStr = String(actionTypeId).toLowerCase();
+          const isEmailAction = actionIdStr.includes('email') || actionIdStr.includes('send');
           
           if (isEmailAction) {
-            // Try multiple possible field names for email ID
-            const emailId = action.emailId || action.emailCampaignId || action.campaignId || action.id;
+            // Email ID might be in fields object or directly on action
+            const emailId = action.emailId || 
+                           action.emailCampaignId || 
+                           action.campaignId || 
+                           action.fields?.emailId ||
+                           action.fields?.emailCampaignId ||
+                           action.fields?.email_id;
+            
             if (emailId) {
               emailIds.push(emailId.toString());
-              console.log(`Found email ID ${emailId} in workflow ${workflow.id} action type: ${actionType}`);
+              console.log(`Found email ID ${emailId} in workflow ${workflow.id} actionTypeId: ${actionTypeId}`);
             } else {
-              console.log(`Email action found but no ID in workflow ${workflow.id}:`, action);
+              console.log(`Email action found but no ID in workflow ${workflow.id}. Action:`, JSON.stringify(action, null, 2));
             }
           }
         }
