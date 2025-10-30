@@ -1,15 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  getAllWorkflows,
-  getWorkflowDetails,
-  getWorkflowEnrollments,
-  getMarketingEmail,
-  extractMarketingEmailIds,
-  hasMarketingEmailActions,
-} from '@/lib/hubspot';
 import type { DashboardData, HubSpotWorkflow, HubSpotMarketingEmail, EnrollmentStats } from '@/types';
 
+const HUBSPOT_API_BASE = 'https://api.hubapi.com';
+
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  retries = 3
+): Promise<Response> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url, options);
+      
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('Retry-After');
+        const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : 2000 * (i + 1);
+        console.log(`Rate limited, waiting ${waitTime}ms...`);
+        await delay(waitTime);
+        continue;
+      }
+      
+      if (!response.ok && i < retries - 1) {
+        await delay(1000 * (i + 1));
+        continue;
+      }
+      
+      return response;
+    } catch (error) {
+      if (i === retries - 1) throw error;
+      await delay(1000 * (i + 1));
+    }
+  }
+  throw new Error('Max retries exceeded');
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -33,20 +58,75 @@ export async function GET(request: NextRequest) {
     }
 
     console.log('Fetching workflows...');
-    const allWorkflows = await getAllWorkflows(accessToken, maxWorkflows, apiDelay);
     
+    // Fetch all workflows
+    const allWorkflows: any[] = [];
+    let hasMore = true;
+    let offset = 0;
+    const limit = 100;
+
+    while (hasMore && allWorkflows.length < maxWorkflows) {
+      const url = `${HUBSPOT_API_BASE}/automation/v4/flows?limit=${limit}&offset=${offset}`;
+      
+      const response = await fetchWithRetry(url, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch workflows: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.results && data.results.length > 0) {
+        allWorkflows.push(...data.results);
+        hasMore = data.paging?.next?.after ? true : false;
+        offset += limit;
+        
+        if (hasMore && allWorkflows.length < maxWorkflows) {
+          await delay(apiDelay);
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+
     console.log(`Found ${allWorkflows.length} workflows, filtering for marketing email workflows...`);
     
     // Filter workflows that have marketing email actions
     const workflowsWithEmails: any[] = [];
-    for (const workflow of allWorkflows) {
+    for (const workflow of allWorkflows.slice(0, maxWorkflows)) {
       await delay(apiDelay);
       
       try {
-        const details = await getWorkflowDetails(workflow.id, accessToken);
+        // Get workflow details
+        const detailsUrl = `${HUBSPOT_API_BASE}/automation/v4/flows/${workflow.id}`;
+        const detailsResponse = await fetchWithRetry(detailsUrl, {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!detailsResponse.ok) {
+          console.error(`Failed to fetch workflow ${workflow.id}`);
+          continue;
+        }
+
+        const details = await detailsResponse.json();
         
-        if (hasMarketingEmailActions(details)) {
-          workflowsWithEmails.push(details);
+        // Check if workflow has marketing email actions
+        if (details.actions && Array.isArray(details.actions)) {
+          const hasEmailAction = details.actions.some((action: any) => 
+            action.type === 'SEND_MARKETING_EMAIL'
+          );
+          
+          if (hasEmailAction) {
+            workflowsWithEmails.push(details);
+          }
         }
       } catch (error) {
         console.error(`Error fetching details for workflow ${workflow.id}:`, error);
@@ -60,7 +140,16 @@ export async function GET(request: NextRequest) {
     const workflowEmailMap = new Map<string, string[]>();
 
     for (const workflow of workflowsWithEmails) {
-      const emailIds = extractMarketingEmailIds(workflow);
+      const emailIds: string[] = [];
+      
+      if (workflow.actions && Array.isArray(workflow.actions)) {
+        for (const action of workflow.actions) {
+          if (action.type === 'SEND_MARKETING_EMAIL' && action.emailId) {
+            emailIds.push(action.emailId.toString());
+          }
+        }
+      }
+      
       workflowEmailMap.set(workflow.id, emailIds);
       emailIds.forEach(id => emailIdSet.add(id));
     }
@@ -68,18 +157,29 @@ export async function GET(request: NextRequest) {
     console.log(`Found ${emailIdSet.size} unique marketing emails`);
 
     // Fetch email details
-    const emailPromises: Promise<any>[] = [];
-    for (const emailId of emailIdSet) {
+    const emailDetails: any[] = [];
+    for (const emailId of Array.from(emailIdSet)) {
       await delay(apiDelay);
-      emailPromises.push(
-        getMarketingEmail(emailId, accessToken).catch(error => {
-          console.error(`Error fetching email ${emailId}:`, error);
-          return null;
-        })
-      );
-    }
+      
+      try {
+        const emailUrl = `${HUBSPOT_API_BASE}/marketing/v3/emails/${emailId}`;
+        const emailResponse = await fetchWithRetry(emailUrl, {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
 
-    const emailDetails = (await Promise.all(emailPromises)).filter(e => e !== null);
+        if (emailResponse.ok) {
+          const email = await emailResponse.json();
+          emailDetails.push(email);
+        } else {
+          console.error(`Failed to fetch email ${emailId}`);
+        }
+      } catch (error) {
+        console.error(`Error fetching email ${emailId}:`, error);
+      }
+    }
 
     console.log(`Successfully fetched ${emailDetails.length} email details`);
 
@@ -101,11 +201,28 @@ export async function GET(request: NextRequest) {
       await delay(apiDelay);
       
       try {
-        const count = await getWorkflowEnrollments(workflow.id, accessToken);
-        enrollmentStats.push({
-          workflowId: workflow.id,
-          last7Days: count,
+        const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+        const enrollUrl = `${HUBSPOT_API_BASE}/automation/v4/flows/${workflow.id}/enrollments?limit=100&enrolledAfter=${sevenDaysAgo}`;
+        
+        const enrollResponse = await fetchWithRetry(enrollUrl, {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
         });
+
+        if (enrollResponse.ok) {
+          const enrollData = await enrollResponse.json();
+          enrollmentStats.push({
+            workflowId: workflow.id,
+            last7Days: enrollData.total || 0,
+          });
+        } else {
+          enrollmentStats.push({
+            workflowId: workflow.id,
+            last7Days: 0,
+          });
+        }
       } catch (error) {
         console.error(`Error fetching enrollments for workflow ${workflow.id}:`, error);
         enrollmentStats.push({
