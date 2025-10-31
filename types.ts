@@ -20,6 +20,8 @@ export interface HubSpotMarketingEmail {
   editUrl: string;
   workflowIds: string[];
   workflowNames: string[];
+  fromName?: string;
+  bodyText?: string;
 }
 
 export interface EnrollmentStats {

@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
       'Accept': 'application/json',
     };
 
-    // Fetch ALL automated marketing emails with workflow names
+    // Step 1: Fetch ALL automated marketing emails with workflow names
     const emailsUrl = `${HUBSPOT_API_BASE}/marketing/v3/emails/?workflowNames=true&includeStats=true&isPublished=true&limit=10000&sort=updatedAt&type=AUTOMATED_EMAIL`;
     
     console.log('Fetching emails from:', emailsUrl);
@@ -40,15 +40,41 @@ export async function GET(request: NextRequest) {
     
     console.log(`Found ${allEmails.length} automated emails`);
 
-    // Group emails by workflow
+    // Filter to only emails used in workflows
+    const emailsInWorkflows = allEmails.filter((email: any) => 
+      email.workflowNames && email.workflowNames.length > 0
+    );
+
+    console.log(`${emailsInWorkflows.length} emails are used in workflows`);
+
+    // Step 2: Get all workflows to map names to IDs
+    const workflowsUrl = `${HUBSPOT_API_BASE}/automation/v4/flows?limit=500`;
+    const workflowsResponse = await fetch(workflowsUrl, { headers });
+    
+    let workflowNameToId = new Map<string, string>();
+    
+    if (workflowsResponse.ok) {
+      const workflowsData = await workflowsResponse.json();
+      const workflows = workflowsData.results || [];
+      
+      workflows.forEach((wf: any) => {
+        workflowNameToId.set(wf.name, wf.id);
+      });
+      
+      console.log(`Mapped ${workflowNameToId.size} workflow names to IDs`);
+    }
+
+    // Step 3: Group emails by workflow
     const workflowMap = new Map<string, any>();
     
-    allEmails.forEach((email: any) => {
+    emailsInWorkflows.forEach((email: any) => {
       const workflows = email.workflowNames || [];
       
       workflows.forEach((workflowName: string) => {
         if (!workflowMap.has(workflowName)) {
+          const workflowId = workflowNameToId.get(workflowName) || workflowName;
           workflowMap.set(workflowName, {
+            id: workflowId,
             name: workflowName,
             emails: [],
             emailIds: [],
@@ -63,37 +89,53 @@ export async function GET(request: NextRequest) {
 
     // Convert workflow map to array
     const workflows: HubSpotWorkflow[] = Array.from(workflowMap.entries()).map(([name, data]) => ({
-      id: name, // Using workflow name as ID since we don't have the actual workflow ID
+      id: data.id,
       name: data.name,
       type: 'AUTOMATED',
-      enabled: true, // We don't know this from the email data
-      insertedAt: 0, // We don't have this from email data
+      enabled: true,
+      insertedAt: 0,
       updatedAt: Date.now(),
       lastExecutedAt: undefined,
       marketingEmailCount: data.emails.length,
       marketingEmailIds: data.emailIds,
     }));
 
-    // Format email data
-    const emails: HubSpotMarketingEmail[] = allEmails.map((email: any) => {
+    // Step 4: Format email data with workflow IDs
+    const emails: HubSpotMarketingEmail[] = emailsInWorkflows.map((email: any) => {
       const workflowNames = email.workflowNames || [];
+      const workflowIds = workflowNames.map((name: string) => 
+        workflowNameToId.get(name) || name
+      );
+      
+      // Extract body text from HTML (simple version)
+      let bodyText = '';
+      if (email.content?.widgets) {
+        Object.values(email.content.widgets).forEach((widget: any) => {
+          if (widget.body?.html) {
+            // Strip HTML tags for preview
+            bodyText += widget.body.html.replace(/<[^>]*>/g, ' ') + ' ';
+          }
+        });
+      }
       
       return {
         id: email.id.toString(),
         name: email.name || 'Unnamed Email',
         subject: email.subject || '',
-        htmlBody: '', // Not included in this endpoint response
+        htmlBody: JSON.stringify(email.content || {}), // Store full content for preview
         previewUrl: `https://app.hubspot.com/preview/${portalId}/email/${email.id}`,
-        editUrl: `https://app.hubspot.com/email/${portalId}/edit/${email.id}`,
-        workflowIds: workflowNames, // Using names as IDs
+        editUrl: `https://app.hubspot.com/email/${portalId}/edit/${email.id}/content`,
+        workflowIds: workflowIds,
         workflowNames: workflowNames,
+        fromName: email.from?.fromName || '',
+        bodyText: bodyText.trim().substring(0, 200), // First 200 chars
       };
     });
 
-    // Create placeholder enrollment stats (we'd need workflow IDs for real stats)
+    // Create placeholder enrollment stats
     const enrollmentStats: EnrollmentStats[] = workflows.map(wf => ({
       workflowId: wf.id,
-      last7Days: 0, // Would need actual workflow API call to get this
+      last7Days: 0,
     }));
 
     const dashboardData: DashboardData = { 

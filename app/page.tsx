@@ -1,13 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import type { DashboardData, HubSpotWorkflow, HubSpotMarketingEmail, EnrollmentStats } from '@/types';
+import type { DashboardData, HubSpotMarketingEmail } from '@/types';
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedEmail, setSelectedEmail] = useState<HubSpotMarketingEmail | null>(null);
+  const portalId = '6885872'; // Your portal ID
 
   useEffect(() => {
     fetchDashboardData();
@@ -33,20 +34,14 @@ export default function DashboardPage() {
     }
   };
 
-  const getEnrollmentCount = (workflowId: string): number => {
-    const stat = data?.enrollmentStats.find(s => s.workflowId === workflowId);
-    return stat?.last7Days || 0;
-  };
-
-  const formatDate = (timestamp: number): string => {
-    if (!timestamp) return 'N/A';
-    return new Date(timestamp).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+  const renderEmailPreview = (email: HubSpotMarketingEmail) => {
+    try {
+      const content = JSON.parse(email.htmlBody);
+      // This is a simplified preview - you might need to enhance based on HubSpot's structure
+      return <div dangerouslySetInnerHTML={{ __html: email.bodyText || 'No preview available' }} />;
+    } catch {
+      return <div>{email.bodyText || 'No preview available'}</div>;
+    }
   };
 
   if (loading) {
@@ -81,7 +76,7 @@ export default function DashboardPage() {
   return (
     <div style={styles.container}>
       <header style={styles.header}>
-        <h1 style={styles.title}>HubSpot Email Automation Dashboard</h1>
+        <h1 style={styles.title}>HubSpot Workflow Emails</h1>
         <button onClick={fetchDashboardData} style={styles.refreshButton}>
           Refresh Data
         </button>
@@ -89,53 +84,79 @@ export default function DashboardPage() {
 
       <div style={styles.stats}>
         <div style={styles.statCard}>
-          <h3>Active Workflows</h3>
+          <h3>Workflows</h3>
           <p style={styles.statNumber}>{data.workflows.length}</p>
         </div>
         <div style={styles.statCard}>
-          <h3>Marketing Emails</h3>
+          <h3>Emails in Workflows</h3>
           <p style={styles.statNumber}>{data.emails.length}</p>
-        </div>
-        <div style={styles.statCard}>
-          <h3>Total Enrollments (7d)</h3>
-          <p style={styles.statNumber}>
-            {data.enrollmentStats.reduce((sum, stat) => sum + stat.last7Days, 0)}
-          </p>
         </div>
       </div>
 
       <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>Workflows with Marketing Emails</h2>
+        <h2 style={styles.sectionTitle}>Automated Marketing Emails</h2>
         <div style={styles.tableContainer}>
           <table style={styles.table}>
             <thead>
               <tr>
-                <th style={styles.th}>Workflow Name</th>
-                <th style={styles.th}>Last Action</th>
-                <th style={styles.th}>Updated On</th>
-                <th style={styles.th}>Enrolled (7d)</th>
-                <th style={styles.th}>Marketing Emails</th>
+                <th style={styles.th}>Email Name</th>
+                <th style={styles.th}>Subject Line</th>
+                <th style={styles.th}>From Name</th>
+                <th style={styles.th}>Body Preview</th>
+                <th style={styles.th}>Workflows</th>
+                <th style={styles.th}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {data.workflows.map((workflow) => (
-                <tr key={workflow.id} style={styles.tr}>
+              {data.emails.map((email) => (
+                <tr key={email.id} style={styles.tr}>
                   <td style={styles.td}>
-                    <div style={styles.workflowName}>
-                      {workflow.name}
-                      {!workflow.enabled && (
-                        <span style={styles.disabledBadge}>Disabled</span>
-                      )}
+                    <strong>{email.name}</strong>
+                  </td>
+                  <td style={styles.td}>{email.subject || 'No subject'}</td>
+                  <td style={styles.td}>{email.fromName || 'N/A'}</td>
+                  <td style={styles.td}>
+                    <div style={styles.bodyPreview}>
+                      {email.bodyText || 'No preview'}
                     </div>
                   </td>
                   <td style={styles.td}>
-                    {workflow.lastExecutedAt
-                      ? formatDate(workflow.lastExecutedAt)
-                      : 'Never'}
+                    <div style={styles.workflowLinks}>
+                      {email.workflowNames.map((name, index) => {
+                        const workflowId = email.workflowIds[index];
+                        return (
+                          <div key={index} style={styles.workflowItem}>
+                            <a
+                              href={`https://app.hubspot.com/workflows/${portalId}/platform/flow/${workflowId}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={styles.workflowLink}
+                            >
+                              {name}
+                            </a>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </td>
-                  <td style={styles.td}>{formatDate(workflow.updatedAt)}</td>
-                  <td style={styles.td}>{getEnrollmentCount(workflow.id)}</td>
-                  <td style={styles.td}>{workflow.marketingEmailCount}</td>
+                  <td style={styles.td}>
+                    <div style={styles.actionButtons}>
+                      <a
+                        href={email.editUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={styles.editButton}
+                      >
+                        Edit Email
+                      </a>
+                      <button
+                        onClick={() => setSelectedEmail(email)}
+                        style={styles.previewButton}
+                      >
+                        Preview
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -143,66 +164,16 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>Marketing Emails</h2>
-        <div style={styles.emailGrid}>
-          {data.emails.map((email) => (
-            <div key={email.id} style={styles.emailCard}>
-              <div style={styles.emailHeader}>
-                <h3 style={styles.emailName}>{email.name}</h3>
-                <div style={styles.emailActions}>
-                  <a
-                    href={email.previewUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={styles.previewLink}
-                  >
-                    Preview
-                  </a>
-                  <a
-                    href={email.editUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={styles.editLink}
-                  >
-                    Edit
-                  </a>
-                </div>
-              </div>
-              
-              <div style={styles.emailSubject}>
-                <strong>Subject:</strong> {email.subject || 'No subject'}
-              </div>
-              
-              <div style={styles.emailWorkflows}>
-                <strong>Used in workflows:</strong>
-                {email.workflowNames.length > 0 ? (
-                  <ul style={styles.workflowList}>
-                    {email.workflowNames.map((name, index) => (
-                      <li key={index}>{name}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <span style={styles.noWorkflows}> None</span>
-                )}
-              </div>
-              
-              <button
-                onClick={() => setSelectedEmail(email)}
-                style={styles.viewBodyButton}
-              >
-                View Email Body
-              </button>
-            </div>
-          ))}
-        </div>
-      </section>
-
+      {/* Email Preview Modal */}
       {selectedEmail && (
         <div style={styles.modal} onClick={() => setSelectedEmail(null)}>
           <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
-              <h2>{selectedEmail.name}</h2>
+              <div>
+                <h2>{selectedEmail.name}</h2>
+                <p style={styles.modalSubject}>Subject: {selectedEmail.subject}</p>
+                <p style={styles.modalFrom}>From: {selectedEmail.fromName}</p>
+              </div>
               <button
                 onClick={() => setSelectedEmail(null)}
                 style={styles.closeButton}
@@ -212,13 +183,18 @@ export default function DashboardPage() {
             </div>
             <div style={styles.modalBody}>
               <div style={styles.emailBodyPreview}>
-                <iframe
-                  srcDoc={selectedEmail.htmlBody}
-                  style={styles.iframe}
-                  title="Email Preview"
-                  sandbox="allow-same-origin"
-                />
+                {renderEmailPreview(selectedEmail)}
               </div>
+            </div>
+            <div style={styles.modalFooter}>
+              <a
+                href={selectedEmail.editUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={styles.modalEditButton}
+              >
+                Edit in HubSpot
+              </a>
             </div>
           </div>
         </div>
@@ -338,101 +314,61 @@ const styles = {
     fontWeight: 'bold',
     color: '#555',
     backgroundColor: '#f9f9f9',
+    fontSize: '14px',
   },
   tr: {
     borderBottom: '1px solid #e0e0e0',
   },
   td: {
     padding: '15px',
+    fontSize: '14px',
+    verticalAlign: 'top' as const,
   },
-  workflowName: {
+  bodyPreview: {
+    maxWidth: '300px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+    color: '#666',
+    fontSize: '13px',
+  },
+  workflowLinks: {
     display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
+    flexDirection: 'column' as const,
+    gap: '5px',
   },
-  disabledBadge: {
-    padding: '2px 8px',
-    backgroundColor: '#ff9800',
+  workflowItem: {
+    marginBottom: '5px',
+  },
+  workflowLink: {
+    color: '#007bff',
+    textDecoration: 'none',
+    fontSize: '13px',
+    display: 'inline-block',
+  },
+  actionButtons: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '8px',
+  },
+  editButton: {
+    padding: '8px 12px',
+    backgroundColor: '#28a745',
     color: 'white',
-    borderRadius: '4px',
-    fontSize: '12px',
-    fontWeight: 'bold',
-  },
-  emailGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))',
-    gap: '20px',
-  },
-  emailCard: {
-    backgroundColor: 'white',
-    padding: '20px',
-    borderRadius: '8px',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  },
-  emailHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'start',
-    marginBottom: '15px',
-  },
-  emailName: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    color: '#333',
-    margin: 0,
-    flex: 1,
-  },
-  emailActions: {
-    display: 'flex',
-    gap: '10px',
-  },
-  previewLink: {
-    padding: '5px 12px',
-    backgroundColor: '#e3f2fd',
-    color: '#1976d2',
     textDecoration: 'none',
     borderRadius: '4px',
     fontSize: '13px',
-    fontWeight: '500',
+    textAlign: 'center' as const,
+    display: 'inline-block',
   },
-  editLink: {
-    padding: '5px 12px',
-    backgroundColor: '#f3e5f5',
-    color: '#7b1fa2',
-    textDecoration: 'none',
-    borderRadius: '4px',
-    fontSize: '13px',
-    fontWeight: '500',
-  },
-  emailSubject: {
-    marginBottom: '15px',
-    fontSize: '14px',
-    color: '#666',
-  },
-  emailWorkflows: {
-    marginBottom: '15px',
-    fontSize: '14px',
-    color: '#666',
-  },
-  workflowList: {
-    marginTop: '8px',
-    marginLeft: '20px',
-    fontSize: '13px',
-  },
-  noWorkflows: {
-    color: '#999',
-    fontStyle: 'italic' as const,
-  },
-  viewBodyButton: {
-    width: '100%',
-    padding: '10px',
-    backgroundColor: '#4caf50',
+  previewButton: {
+    padding: '8px 12px',
+    backgroundColor: '#17a2b8',
     color: 'white',
     border: 'none',
-    borderRadius: '6px',
+    borderRadius: '4px',
+    fontSize: '13px',
     cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: '500',
   },
   modal: {
     position: 'fixed' as const,
@@ -450,7 +386,7 @@ const styles = {
   modalContent: {
     backgroundColor: 'white',
     borderRadius: '8px',
-    maxWidth: '800px',
+    maxWidth: '900px',
     width: '100%',
     maxHeight: '90vh',
     display: 'flex',
@@ -460,9 +396,19 @@ const styles = {
   modalHeader: {
     display: 'flex',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'start',
     padding: '20px',
     borderBottom: '1px solid #e0e0e0',
+  },
+  modalSubject: {
+    fontSize: '14px',
+    color: '#666',
+    marginTop: '5px',
+  },
+  modalFrom: {
+    fontSize: '14px',
+    color: '#666',
+    marginTop: '5px',
   },
   closeButton: {
     background: 'none',
@@ -485,11 +431,23 @@ const styles = {
   emailBodyPreview: {
     border: '1px solid #e0e0e0',
     borderRadius: '4px',
+    padding: '20px',
     minHeight: '400px',
+    backgroundColor: '#fff',
   },
-  iframe: {
-    width: '100%',
-    minHeight: '400px',
-    border: 'none',
+  modalFooter: {
+    padding: '20px',
+    borderTop: '1px solid #e0e0e0',
+    display: 'flex',
+    justifyContent: 'flex-end',
+  },
+  modalEditButton: {
+    padding: '10px 20px',
+    backgroundColor: '#28a745',
+    color: 'white',
+    textDecoration: 'none',
+    borderRadius: '6px',
+    fontSize: '14px',
+    fontWeight: '500',
   },
 };
