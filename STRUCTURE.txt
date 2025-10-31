@@ -1,0 +1,28 @@
+hubspot-email-dashboard/
+├── .env.local.example          # Example environment variables (COPY to .env.local)
+├── .gitignore                  # Git ignore file
+├── README.md                   # Complete setup and troubleshooting guide
+├── next.config.js              # Next.js configuration
+├── package.json                # NPM dependencies
+├── tsconfig.json               # TypeScript configuration
+├── types.ts                    # TypeScript type definitions
+└── app/
+    ├── api/
+    │   └── dashboard/
+    │       └── route.ts        # Main API route that fetches HubSpot data
+    ├── debug/
+    │   └── page.tsx            # Debug page for testing (visit /debug)
+    ├── globals.css             # Global CSS styles
+    ├── layout.tsx              # Root layout component
+    └── page.tsx                # Main dashboard page (home page)
+
+DEPLOYMENT STEPS:
+1. Copy ALL files to your GitHub repository
+2. In Vercel, import the repository
+3. Add environment variables in Vercel:
+   - HUBSPOT_TOKEN
+   - HUBSPOT_PORTAL_ID
+   - MAX_WORKFLOWS (optional)
+   - API_DELAY_MS (optional)
+4. Deploy!
+5. Test at: your-app.vercel.app/debug
