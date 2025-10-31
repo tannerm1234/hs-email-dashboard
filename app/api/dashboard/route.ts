@@ -57,12 +57,16 @@ export async function GET(request: NextRequest) {
     
     console.log(`Total emails fetched after pagination: ${allEmails.length}`);
 
-    // Filter to only emails used in workflows
+    // Filter to only emails used in workflows AND published
     const emailsInWorkflows = allEmails.filter((email: any) => 
-      email.workflowNames && email.workflowNames.length > 0
+      email.workflowNames && 
+      email.workflowNames.length > 0 &&
+      email.publishedAt !== null && 
+      email.publishedAt !== undefined &&
+      email.state === 'PUBLISHED'
     );
 
-    console.log(`${emailsInWorkflows.length} emails are used in workflows`);
+    console.log(`${emailsInWorkflows.length} emails are used in workflows and published`);
 
     // Step 2: Get all workflows using v3 API to get IDs
     const workflowsUrl = `${HUBSPOT_API_BASE}/automation/v3/workflows`;
