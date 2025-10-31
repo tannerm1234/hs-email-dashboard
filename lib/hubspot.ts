@@ -40,11 +40,15 @@ async function getAllWorkflows(
 ): Promise<any[]> {
   const allWorkflows: any[] = [];
   let hasMore = true;
-  let offset = 0;
+  let after: string | undefined;
   const limit = 100;
 
-  while (hasMore && allWorkflows.length < maxWorkflows) {
-    const url = `${HUBSPOT_API_BASE}/automation/v4/flows?limit=${limit}&offset=${offset}`;
+  while (hasMore && (maxWorkflows === 0 || allWorkflows.length < maxWorkflows)) {
+    const searchParams = new URLSearchParams({ limit: String(limit) });
+    if (after) {
+      searchParams.set('after', after);
+    }
+    const url = `${HUBSPOT_API_BASE}/automation/v4/flows?${searchParams.toString()}`;
     
     const response = await fetchWithRetry(url, {
       headers: {
@@ -59,12 +63,13 @@ async function getAllWorkflows(
 
     const data = await response.json();
     
-    if (data.results && data.results.length > 0) {
-      allWorkflows.push(...data.results);
-      hasMore = data.paging?.next?.after ? true : false;
-      offset += limit;
-      
-      if (hasMore && allWorkflows.length < maxWorkflows) {
+    const results = data.results ?? [];
+    if (results.length > 0) {
+      allWorkflows.push(...results);
+      after = data.paging?.next?.after;
+      hasMore = Boolean(after);
+
+      if (hasMore && (maxWorkflows === 0 || allWorkflows.length < maxWorkflows)) {
         await delay(apiDelay);
       }
     } else {
@@ -72,7 +77,7 @@ async function getAllWorkflows(
     }
   }
 
-  return allWorkflows.slice(0, maxWorkflows);
+  return maxWorkflows === 0 ? allWorkflows : allWorkflows.slice(0, maxWorkflows);
 }
 
 async function getWorkflowDetails(

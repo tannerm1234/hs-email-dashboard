@@ -32,22 +32,94 @@ export async function GET(request: NextRequest) {
     const accessToken = process.env.HUBSPOT_TOKEN;
     const portalId = process.env.HUBSPOT_PORTAL_ID;
     const apiDelay = parseInt(process.env.API_DELAY_MS || '250');
+    const maxWorkflows = parseInt(process.env.MAX_WORKFLOWS || '0', 10);
 
     if (!accessToken || !portalId) {
       return NextResponse.json({ error: 'Missing environment variables' }, { status: 500 });
     }
 
-    // Step 1: Get all workflows
-    const response = await fetchWithRetry(`${HUBSPOT_API_BASE}/automation/v4/flows?limit=25`, {
-      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    });
+    const commonHeaders = {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    };
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch workflows: ${response.statusText}`);
+    // Step 1: Get all workflows
+    const workflowAccumulator: any[] = [];
+    const pageLimit = 100;
+    let hasMore = true;
+    let after: string | undefined;
+
+    while (hasMore && (maxWorkflows === 0 || workflowAccumulator.length < maxWorkflows)) {
+      const params = new URLSearchParams({ limit: String(pageLimit) });
+      if (after) {
+        params.set('after', after);
+      }
+
+      const response = await fetchWithRetry(`${HUBSPOT_API_BASE}/automation/v4/flows?${params.toString()}`, {
+        headers: commonHeaders,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch workflows: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const results = Array.isArray(data.results) ? data.results : [];
+
+      if (results.length === 0) {
+        break;
+      }
+
+      workflowAccumulator.push(...results);
+      after = data.paging?.next?.after;
+      hasMore = Boolean(after);
+
+      if (hasMore && (maxWorkflows === 0 || workflowAccumulator.length < maxWorkflows)) {
+        await delay(apiDelay);
+      }
     }
 
-    const workflowsData = await response.json();
-    const allWorkflows = workflowsData.results || [];
+    const allWorkflows = maxWorkflows === 0 ? workflowAccumulator : workflowAccumulator.slice(0, maxWorkflows);
+
+    const fetchEmailCampaignsForFlow = async (flowId: string): Promise<any[]> => {
+      const campaigns: any[] = [];
+      let campaignAfter: string | undefined;
+      let campaignHasMore = true;
+      const campaignLimit = 100;
+
+      while (campaignHasMore) {
+        const params = new URLSearchParams({ flowId, limit: String(campaignLimit) });
+        if (campaignAfter) {
+          params.set('after', campaignAfter);
+        }
+
+        const emailCampaignsResponse = await fetchWithRetry(
+          `${HUBSPOT_API_BASE}/automation/v4/flows/email-campaigns?${params.toString()}`,
+          { headers: commonHeaders }
+        );
+
+        if (!emailCampaignsResponse.ok) {
+          throw new Error(`Failed to fetch email campaigns for workflow ${flowId}: ${emailCampaignsResponse.statusText}`);
+        }
+
+        const emailCampaignsData = await emailCampaignsResponse.json();
+        const emailCampaigns = Array.isArray(emailCampaignsData.results) ? emailCampaignsData.results : [];
+
+        if (emailCampaigns.length === 0) {
+          break;
+        }
+
+        campaigns.push(...emailCampaigns);
+        campaignAfter = emailCampaignsData.paging?.next?.after;
+        campaignHasMore = Boolean(campaignAfter);
+
+        if (campaignHasMore) {
+          await delay(apiDelay);
+        }
+      }
+
+      return campaigns;
+    };
 
     // Step 2: For each workflow, get all emails in that workflow
     const workflowsWithEmails: any[] = [];
@@ -56,32 +128,31 @@ export async function GET(request: NextRequest) {
 
     for (const workflow of allWorkflows) {
       await delay(apiDelay);
-      
+
+      const workflowId = workflow.id ?? workflow.workflowId;
+      if (!workflowId) {
+        continue;
+      }
+
+      const workflowIdStr = workflowId.toString();
+
       try {
         // Get all email campaigns for this workflow
-        const emailCampaignsResponse = await fetchWithRetry(
-          `${HUBSPOT_API_BASE}/automation/v4/flows/email-campaigns?flowId=${workflow.id}`,
-          { headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
-        );
+        const emailCampaigns = await fetchEmailCampaignsForFlow(workflowIdStr);
 
-        if (emailCampaignsResponse.ok) {
-          const emailCampaignsData = await emailCampaignsResponse.json();
-          const emailCampaigns = emailCampaignsData.results || [];
-          
-          if (emailCampaigns.length > 0) {
-            workflowsWithEmails.push(workflow);
-            workflowEmailMap.set(workflow.id, emailCampaigns);
-            
-            // Collect unique email IDs
-            emailCampaigns.forEach((campaign: any) => {
-              if (campaign.emailCampaignId) {
-                emailIdSet.add(campaign.emailCampaignId.toString());
-              }
-            });
-          }
+        if (emailCampaigns.length > 0) {
+          workflowsWithEmails.push(workflow);
+          workflowEmailMap.set(workflowIdStr, emailCampaigns);
+
+          // Collect unique email IDs
+          emailCampaigns.forEach((campaign: any) => {
+            if (campaign?.emailCampaignId != null) {
+              emailIdSet.add(campaign.emailCampaignId.toString());
+            }
+          });
         }
       } catch (error) {
-        console.error(`Error fetching email campaigns for workflow ${workflow.id}:`, error);
+        console.error(`Error fetching email campaigns for workflow ${workflowIdStr}:`, error);
       }
     }
 
@@ -93,7 +164,7 @@ export async function GET(request: NextRequest) {
       try {
         const emailResponse = await fetchWithRetry(
           `${HUBSPOT_API_BASE}/marketing/v3/emails/${emailId}?includeStats=true`,
-          { headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+          { headers: commonHeaders }
         );
 
         if (emailResponse.ok) {
@@ -108,22 +179,32 @@ export async function GET(request: NextRequest) {
     const enrollmentStats: EnrollmentStats[] = [];
     for (const workflow of workflowsWithEmails) {
       await delay(apiDelay);
-      
+
       try {
         const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+        const workflowId = workflow.id ?? workflow.workflowId;
+        if (!workflowId) {
+          continue;
+        }
+
+        const workflowIdStr = workflowId.toString();
         const enrollResponse = await fetchWithRetry(
-          `${HUBSPOT_API_BASE}/automation/v4/flows/${workflow.id}/enrollments?limit=100&enrolledAfter=${sevenDaysAgo}`,
-          { headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+          `${HUBSPOT_API_BASE}/automation/v4/flows/${workflowIdStr}/enrollments?limit=100&enrolledAfter=${sevenDaysAgo}`,
+          { headers: commonHeaders }
         );
 
         if (enrollResponse.ok) {
           const enrollData = await enrollResponse.json();
-          enrollmentStats.push({ workflowId: workflow.id, last7Days: enrollData.total || 0 });
+          enrollmentStats.push({ workflowId: workflowIdStr, last7Days: enrollData.total || 0 });
         } else {
-          enrollmentStats.push({ workflowId: workflow.id, last7Days: 0 });
+          enrollmentStats.push({ workflowId: workflowIdStr, last7Days: 0 });
         }
       } catch (error) {
-        enrollmentStats.push({ workflowId: workflow.id, last7Days: 0 });
+        const workflowId = workflow.id ?? workflow.workflowId;
+        if (!workflowId) {
+          continue;
+        }
+        enrollmentStats.push({ workflowId: workflowId.toString(), last7Days: 0 });
       }
     }
 
@@ -142,24 +223,32 @@ export async function GET(request: NextRequest) {
     }
 
     // Step 6: Format workflow data
-    const workflows: HubSpotWorkflow[] = workflowsWithEmails.map(workflow => {
-      const emailCampaigns = workflowEmailMap.get(workflow.id) || [];
-      const emailIds = emailCampaigns
-        .map(c => c.emailCampaignId?.toString())
-        .filter((id): id is string => !!id);
-      
-      return {
-        id: workflow.id,
-        name: workflow.name || 'Unnamed Workflow',
-        type: workflow.type || 'UNKNOWN',
-        enabled: workflow.isEnabled || false,
-        insertedAt: new Date(workflow.createdAt).getTime(),
-        updatedAt: new Date(workflow.updatedAt).getTime(),
-        lastExecutedAt: undefined,
-        marketingEmailCount: emailIds.length,
-        marketingEmailIds: emailIds,
-      };
-    });
+    const workflows: HubSpotWorkflow[] = workflowsWithEmails
+      .map(workflow => {
+        const workflowId = workflow.id ?? workflow.workflowId;
+        if (!workflowId) {
+          return null;
+        }
+
+        const workflowIdStr = workflowId.toString();
+        const emailCampaigns = workflowEmailMap.get(workflowIdStr) || [];
+        const emailIds = emailCampaigns
+          .map(c => c.emailCampaignId?.toString())
+          .filter((id): id is string => !!id);
+
+        return {
+          id: workflowIdStr,
+          name: workflow.name || 'Unnamed Workflow',
+          type: workflow.type || 'UNKNOWN',
+          enabled: workflow.isEnabled || false,
+          insertedAt: new Date(workflow.createdAt).getTime(),
+          updatedAt: new Date(workflow.updatedAt).getTime(),
+          lastExecutedAt: undefined,
+          marketingEmailCount: emailIds.length,
+          marketingEmailIds: emailIds,
+        };
+      })
+      .filter((workflow): workflow is HubSpotWorkflow => workflow !== null);
 
     // Step 7: Format email data
     const emails: HubSpotMarketingEmail[] = emailDetails.map(email => {
