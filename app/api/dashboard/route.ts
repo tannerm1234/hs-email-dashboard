@@ -47,47 +47,76 @@ export async function GET(request: NextRequest) {
 
     console.log(`${emailsInWorkflows.length} emails are used in workflows`);
 
-    // Step 2: Get all workflows to map names to IDs
-    const workflowsUrl = `${HUBSPOT_API_BASE}/automation/v4/flows?limit=500`;
+    // Step 2: Get all workflows using v3 API to get IDs
+    const workflowsUrl = `${HUBSPOT_API_BASE}/automation/v3/workflows`;
     const workflowsResponse = await fetch(workflowsUrl, { headers });
     
     let workflowNameToId = new Map<string, string>();
     
     if (workflowsResponse.ok) {
       const workflowsData = await workflowsResponse.json();
-      const workflows = workflowsData.results || [];
+      const workflows = workflowsData.workflows || [];
       
       workflows.forEach((wf: any) => {
-        workflowNameToId.set(wf.name, wf.id);
+        workflowNameToId.set(wf.name, wf.id.toString());
       });
       
-      console.log(`Mapped ${workflowNameToId.size} workflow names to IDs`);
+      console.log(`Mapped ${workflowNameToId.size} workflow names to IDs from v3 API`);
     }
 
-    // Step 3: Group emails by workflow
+    // Step 3: Create email-workflow pairs (one row per pairing)
+    const emailWorkflowPairs: any[] = [];
     const workflowMap = new Map<string, any>();
     
     emailsInWorkflows.forEach((email: any) => {
       const workflows = email.workflowNames || [];
       
       workflows.forEach((workflowName: string) => {
+        const workflowId = workflowNameToId.get(workflowName) || workflowName;
+        
+        // Track workflow for stats
         if (!workflowMap.has(workflowName)) {
-          const workflowId = workflowNameToId.get(workflowName) || workflowName;
           workflowMap.set(workflowName, {
             id: workflowId,
             name: workflowName,
-            emails: [],
-            emailIds: [],
+            emailCount: 0,
+          });
+        }
+        workflowMap.get(workflowName)!.emailCount++;
+        
+        // Extract body text from HTML (simple version)
+        let bodyText = '';
+        if (email.content?.widgets) {
+          Object.values(email.content.widgets).forEach((widget: any) => {
+            if (widget.body?.html) {
+              // Strip HTML tags for preview
+              bodyText += widget.body.html.replace(/<[^>]*>/g, ' ') + ' ';
+            }
           });
         }
         
-        const workflow = workflowMap.get(workflowName)!;
-        workflow.emails.push(email);
-        workflow.emailIds.push(email.id);
+        // Create a unique entry for this email-workflow pair
+        emailWorkflowPairs.push({
+          id: `${email.id}-${workflowId}`, // Unique ID for this pairing
+          emailId: email.id.toString(),
+          name: email.name || 'Unnamed Email',
+          subject: email.subject || '',
+          htmlBody: JSON.stringify(email.content || {}),
+          previewUrl: `https://app.hubspot.com/preview/${portalId}/email/${email.id}`,
+          editUrl: `https://app.hubspot.com/email/${portalId}/edit/${email.id}/content`,
+          workflowId: workflowId,
+          workflowName: workflowName,
+          workflowIds: [workflowId], // Keep for compatibility
+          workflowNames: [workflowName], // Keep for compatibility
+          fromName: email.from?.fromName || '',
+          bodyText: bodyText.trim().substring(0, 500), // First 500 chars for preview
+        });
       });
     });
 
-    // Convert workflow map to array
+    console.log(`Created ${emailWorkflowPairs.length} email-workflow pairs`);
+
+    // Convert workflow map to array for stats
     const workflows: HubSpotWorkflow[] = Array.from(workflowMap.entries()).map(([name, data]) => ({
       id: data.id,
       name: data.name,
@@ -96,41 +125,9 @@ export async function GET(request: NextRequest) {
       insertedAt: 0,
       updatedAt: Date.now(),
       lastExecutedAt: undefined,
-      marketingEmailCount: data.emails.length,
-      marketingEmailIds: data.emailIds,
+      marketingEmailCount: data.emailCount,
+      marketingEmailIds: [],
     }));
-
-    // Step 4: Format email data with workflow IDs
-    const emails: HubSpotMarketingEmail[] = emailsInWorkflows.map((email: any) => {
-      const workflowNames = email.workflowNames || [];
-      const workflowIds = workflowNames.map((name: string) => 
-        workflowNameToId.get(name) || name
-      );
-      
-      // Extract body text from HTML (simple version)
-      let bodyText = '';
-      if (email.content?.widgets) {
-        Object.values(email.content.widgets).forEach((widget: any) => {
-          if (widget.body?.html) {
-            // Strip HTML tags for preview
-            bodyText += widget.body.html.replace(/<[^>]*>/g, ' ') + ' ';
-          }
-        });
-      }
-      
-      return {
-        id: email.id.toString(),
-        name: email.name || 'Unnamed Email',
-        subject: email.subject || '',
-        htmlBody: JSON.stringify(email.content || {}), // Store full content for preview
-        previewUrl: `https://app.hubspot.com/preview/${portalId}/email/${email.id}`,
-        editUrl: `https://app.hubspot.com/email/${portalId}/edit/${email.id}/content`,
-        workflowIds: workflowIds,
-        workflowNames: workflowNames,
-        fromName: email.from?.fromName || '',
-        bodyText: bodyText.trim().substring(0, 200), // First 200 chars
-      };
-    });
 
     // Create placeholder enrollment stats
     const enrollmentStats: EnrollmentStats[] = workflows.map(wf => ({
@@ -140,11 +137,11 @@ export async function GET(request: NextRequest) {
 
     const dashboardData: DashboardData = { 
       workflows, 
-      emails, 
+      emails: emailWorkflowPairs, // Now contains email-workflow pairs
       enrollmentStats 
     };
     
-    console.log(`Returning ${workflows.length} workflows and ${emails.length} emails`);
+    console.log(`Returning ${workflows.length} workflows and ${emailWorkflowPairs.length} email-workflow pairs`);
     
     return NextResponse.json(dashboardData);
     

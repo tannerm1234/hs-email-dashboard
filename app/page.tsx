@@ -8,7 +8,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedEmail, setSelectedEmail] = useState<HubSpotMarketingEmail | null>(null);
-  const portalId = '6885872'; // Your portal ID
+  const [expandedWorkflows, setExpandedWorkflows] = useState<Set<string>>(new Set());
+  const [expandedBodyPreviews, setExpandedBodyPreviews] = useState<Set<string>>(new Set());
+  const portalId = '6885872';
 
   useEffect(() => {
     fetchDashboardData();
@@ -27,6 +29,10 @@ export default function DashboardPage() {
       
       const dashboardData: DashboardData = await response.json();
       setData(dashboardData);
+      
+      // Expand all workflows by default
+      const workflowNames = new Set(dashboardData.emails.map((e: any) => e.workflowName));
+      setExpandedWorkflows(workflowNames);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unknown error occurred');
     } finally {
@@ -34,15 +40,48 @@ export default function DashboardPage() {
     }
   };
 
+  const toggleWorkflow = (workflowName: string) => {
+    setExpandedWorkflows(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(workflowName)) {
+        newSet.delete(workflowName);
+      } else {
+        newSet.add(workflowName);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleBodyPreview = (emailId: string) => {
+    setExpandedBodyPreviews(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(emailId)) {
+        newSet.delete(emailId);
+      } else {
+        newSet.add(emailId);
+      }
+      return newSet;
+    });
+  };
+
   const renderEmailPreview = (email: HubSpotMarketingEmail) => {
     try {
       const content = JSON.parse(email.htmlBody);
-      // This is a simplified preview - you might need to enhance based on HubSpot's structure
       return <div dangerouslySetInnerHTML={{ __html: email.bodyText || 'No preview available' }} />;
     } catch {
       return <div>{email.bodyText || 'No preview available'}</div>;
     }
   };
+
+  // Group emails by workflow
+  const emailsByWorkflow = data?.emails.reduce((acc: any, email: any) => {
+    const workflowName = email.workflowName;
+    if (!acc[workflowName]) {
+      acc[workflowName] = [];
+    }
+    acc[workflowName].push(email);
+    return acc;
+  }, {}) || {};
 
   if (loading) {
     return (
@@ -85,83 +124,114 @@ export default function DashboardPage() {
       <div style={styles.stats}>
         <div style={styles.statCard}>
           <h3>Workflows</h3>
-          <p style={styles.statNumber}>{data.workflows.length}</p>
+          <p style={styles.statNumber}>{Object.keys(emailsByWorkflow).length}</p>
         </div>
         <div style={styles.statCard}>
-          <h3>Emails in Workflows</h3>
+          <h3>Total Email Instances</h3>
           <p style={styles.statNumber}>{data.emails.length}</p>
         </div>
       </div>
 
       <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>Automated Marketing Emails</h2>
-        <div style={styles.tableContainer}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Email Name</th>
-                <th style={styles.th}>Subject Line</th>
-                <th style={styles.th}>From Name</th>
-                <th style={styles.th}>Body Preview</th>
-                <th style={styles.th}>Workflows</th>
-                <th style={styles.th}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.emails.map((email) => (
-                <tr key={email.id} style={styles.tr}>
-                  <td style={styles.td}>
-                    <strong>{email.name}</strong>
-                  </td>
-                  <td style={styles.td}>{email.subject || 'No subject'}</td>
-                  <td style={styles.td}>{email.fromName || 'N/A'}</td>
-                  <td style={styles.td}>
-                    <div style={styles.bodyPreview}>
-                      {email.bodyText || 'No preview'}
-                    </div>
-                  </td>
-                  <td style={styles.td}>
-                    <div style={styles.workflowLinks}>
-                      {email.workflowNames.map((name, index) => {
-                        const workflowId = email.workflowIds[index];
+        <h2 style={styles.sectionTitle}>Emails by Workflow</h2>
+        
+        {Object.entries(emailsByWorkflow).sort(([a], [b]) => a.localeCompare(b)).map(([workflowName, emails]: [string, any]) => {
+          const isExpanded = expandedWorkflows.has(workflowName);
+          const workflowId = (emails[0] as any).workflowId;
+          
+          return (
+            <div key={workflowName} style={styles.workflowGroup}>
+              <div 
+                style={styles.workflowHeader}
+                onClick={() => toggleWorkflow(workflowName)}
+              >
+                <div style={styles.workflowHeaderContent}>
+                  <span style={styles.expandIcon}>
+                    {isExpanded ? '▼' : '▶'}
+                  </span>
+                  <a
+                    href={`https://app.hubspot.com/workflows/${portalId}/platform/flow/${workflowId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={styles.workflowName}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {workflowName}
+                  </a>
+                  <span style={styles.emailCount}>({emails.length} email{emails.length !== 1 ? 's' : ''})</span>
+                </div>
+              </div>
+              
+              {isExpanded && (
+                <div style={styles.tableContainer}>
+                  <table style={styles.table}>
+                    <thead>
+                      <tr>
+                        <th style={{...styles.th, width: '18%'}}>Email Name</th>
+                        <th style={{...styles.th, width: '18%'}}>Subject Line</th>
+                        <th style={{...styles.th, width: '18%'}}>From Name</th>
+                        <th style={{...styles.th, width: '30%'}}>Body Preview</th>
+                        <th style={{...styles.th, width: '16%'}}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(emails as any[]).map((email) => {
+                        const isBodyExpanded = expandedBodyPreviews.has(email.id);
+                        
                         return (
-                          <div key={index} style={styles.workflowItem}>
-                            <a
-                              href={`https://app.hubspot.com/workflows/${portalId}/platform/flow/${workflowId}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={styles.workflowLink}
-                            >
-                              {name}
-                            </a>
-                          </div>
+                          <tr key={email.id} style={styles.tr}>
+                            <td style={styles.td}>
+                              <strong>{email.name}</strong>
+                            </td>
+                            <td style={styles.td}>{email.subject || 'No subject'}</td>
+                            <td style={styles.td}>{email.fromName || 'N/A'}</td>
+                            <td style={styles.td}>
+                              <div style={styles.bodyPreviewContainer}>
+                                <div style={{
+                                  ...styles.bodyPreview,
+                                  whiteSpace: isBodyExpanded ? 'normal' : 'nowrap',
+                                  overflow: isBodyExpanded ? 'visible' : 'hidden'
+                                }}>
+                                  {email.bodyText || 'No preview'}
+                                </div>
+                                {email.bodyText && email.bodyText.length > 100 && (
+                                  <button
+                                    onClick={() => toggleBodyPreview(email.id)}
+                                    style={styles.expandBodyButton}
+                                  >
+                                    {isBodyExpanded ? '▲' : '▼'}
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                            <td style={styles.td}>
+                              <div style={styles.actionButtons}>
+                                <a
+                                  href={email.editUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={styles.editButton}
+                                >
+                                  Edit Email
+                                </a>
+                                <button
+                                  onClick={() => setSelectedEmail(email)}
+                                  style={styles.previewButton}
+                                >
+                                  Preview
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
                         );
                       })}
-                    </div>
-                  </td>
-                  <td style={styles.td}>
-                    <div style={styles.actionButtons}>
-                      <a
-                        href={email.editUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={styles.editButton}
-                      >
-                        Edit Email
-                      </a>
-                      <button
-                        onClick={() => setSelectedEmail(email)}
-                        style={styles.previewButton}
-                      >
-                        Preview
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </section>
 
       {/* Email Preview Modal */}
@@ -297,10 +367,49 @@ const styles = {
     marginBottom: '15px',
     color: '#333',
   },
-  tableContainer: {
+  workflowGroup: {
+    marginBottom: '20px',
     backgroundColor: 'white',
     borderRadius: '8px',
     boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+    overflow: 'hidden',
+  },
+  workflowHeader: {
+    padding: '15px 20px',
+    backgroundColor: '#f8f9fa',
+    borderBottom: '1px solid #e0e0e0',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    transition: 'background-color 0.2s',
+    ':hover': {
+      backgroundColor: '#e9ecef',
+    },
+  },
+  workflowHeaderContent: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    width: '100%',
+  },
+  expandIcon: {
+    fontSize: '14px',
+    color: '#666',
+    minWidth: '15px',
+  },
+  workflowName: {
+    fontSize: '16px',
+    fontWeight: 'bold',
+    color: '#007bff',
+    textDecoration: 'none',
+    flex: 1,
+  },
+  emailCount: {
+    fontSize: '14px',
+    color: '#666',
+    fontWeight: 'normal',
+  },
+  tableContainer: {
     overflowX: 'auto' as const,
   },
   table: {
@@ -313,7 +422,7 @@ const styles = {
     borderBottom: '2px solid #e0e0e0',
     fontWeight: 'bold',
     color: '#555',
-    backgroundColor: '#f9f9f9',
+    backgroundColor: '#fafafa',
     fontSize: '14px',
   },
   tr: {
@@ -324,27 +433,27 @@ const styles = {
     fontSize: '14px',
     verticalAlign: 'top' as const,
   },
+  bodyPreviewContainer: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '8px',
+  },
   bodyPreview: {
-    maxWidth: '300px',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap' as const,
+    flex: 1,
     color: '#666',
     fontSize: '13px',
+    lineHeight: '1.5',
+    textOverflow: 'ellipsis',
   },
-  workflowLinks: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '5px',
-  },
-  workflowItem: {
-    marginBottom: '5px',
-  },
-  workflowLink: {
-    color: '#007bff',
-    textDecoration: 'none',
-    fontSize: '13px',
-    display: 'inline-block',
+  expandBodyButton: {
+    padding: '2px 8px',
+    backgroundColor: '#f0f0f0',
+    border: '1px solid #ddd',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '12px',
+    color: '#666',
+    minWidth: '24px',
   },
   actionButtons: {
     display: 'flex',
