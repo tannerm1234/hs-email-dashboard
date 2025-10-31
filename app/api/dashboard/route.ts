@@ -20,25 +20,42 @@ export async function GET(request: NextRequest) {
       'Accept': 'application/json',
     };
 
-    // Step 1: Fetch ALL automated marketing emails with workflow names
-    const emailsUrl = `${HUBSPOT_API_BASE}/marketing/v3/emails/?workflowNames=true&includeStats=true&isPublished=true&limit=10000&sort=updatedAt&type=AUTOMATED_EMAIL`;
+    // Step 1: Fetch ALL automated marketing emails with workflow names (WITH PAGINATION)
+    let allEmails: any[] = [];
+    let nextUrl: string | null = `${HUBSPOT_API_BASE}/marketing/v3/emails/?workflowNames=true&includeStats=true&isPublished=true&limit=10000&sort=updatedAt&type=AUTOMATED_EMAIL`;
     
-    console.log('Fetching emails from:', emailsUrl);
+    console.log('Starting to fetch emails with pagination...');
     
-    const emailsResponse = await fetch(emailsUrl, { headers });
-    
-    if (!emailsResponse.ok) {
-      const errorText = await emailsResponse.text();
-      console.error('Error fetching emails:', errorText);
-      return NextResponse.json({ 
-        error: `Failed to fetch emails: ${emailsResponse.status}` 
-      }, { status: emailsResponse.status });
-    }
+    // Pagination loop
+    while (nextUrl) {
+      console.log('Fetching from:', nextUrl);
+      
+      const emailsResponse = await fetch(nextUrl, { headers });
+      
+      if (!emailsResponse.ok) {
+        const errorText = await emailsResponse.text();
+        console.error('Error fetching emails:', errorText);
+        return NextResponse.json({ 
+          error: `Failed to fetch emails: ${emailsResponse.status}` 
+        }, { status: emailsResponse.status });
+      }
 
-    const emailsData = await emailsResponse.json();
-    const allEmails = emailsData.results || [];
+      const emailsData = await emailsResponse.json();
+      const batchEmails = emailsData.results || [];
+      allEmails = allEmails.concat(batchEmails);
+      
+      console.log(`Fetched ${batchEmails.length} emails, total so far: ${allEmails.length}`);
+      
+      // Check for next page
+      if (emailsData.paging?.next?.link) {
+        nextUrl = emailsData.paging.next.link;
+        await delay(apiDelay); // Rate limiting between pages
+      } else {
+        nextUrl = null;
+      }
+    }
     
-    console.log(`Found ${allEmails.length} automated emails`);
+    console.log(`Total emails fetched after pagination: ${allEmails.length}`);
 
     // Filter to only emails used in workflows
     const emailsInWorkflows = allEmails.filter((email: any) => 

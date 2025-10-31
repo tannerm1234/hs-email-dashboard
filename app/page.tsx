@@ -167,11 +167,11 @@ export default function DashboardPage() {
                   <table style={styles.table}>
                     <thead>
                       <tr>
-                        <th style={{...styles.th, width: '18%'}}>Email Name</th>
-                        <th style={{...styles.th, width: '18%'}}>Subject Line</th>
-                        <th style={{...styles.th, width: '18%'}}>From Name</th>
-                        <th style={{...styles.th, width: '30%'}}>Body Preview</th>
-                        <th style={{...styles.th, width: '16%'}}>Actions</th>
+                        <th style={{...styles.th, width: '20%'}}>Email Name</th>
+                        <th style={{...styles.th, width: '20%'}}>Subject Line</th>
+                        <th style={{...styles.th, width: '15%'}}>Actions</th>
+                        <th style={{...styles.th, width: '20%'}}>From Name</th>
+                        <th style={{...styles.th, width: '25%'}}>Body Preview</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -180,12 +180,30 @@ export default function DashboardPage() {
                         
                         return (
                           <tr key={email.id} style={styles.tr}>
-                            <td style={styles.td}>
+                            <td style={{...styles.td, width: '20%'}}>
                               <strong>{email.name}</strong>
                             </td>
-                            <td style={styles.td}>{email.subject || 'No subject'}</td>
-                            <td style={styles.td}>{email.fromName || 'N/A'}</td>
-                            <td style={styles.td}>
+                            <td style={{...styles.td, width: '20%'}}>{email.subject || 'No subject'}</td>
+                            <td style={{...styles.td, width: '15%'}}>
+                              <div style={styles.actionButtons}>
+                                <a
+                                  href={email.editUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={styles.editButton}
+                                >
+                                  Edit Email
+                                </a>
+                                <button
+                                  onClick={() => setSelectedEmail(email)}
+                                  style={styles.previewButton}
+                                >
+                                  Preview
+                                </button>
+                              </div>
+                            </td>
+                            <td style={{...styles.td, width: '20%'}}>{email.fromName || 'N/A'}</td>
+                            <td style={{...styles.td, width: '25%'}}>
                               <div style={styles.bodyPreviewContainer}>
                                 <div style={{
                                   ...styles.bodyPreview,
@@ -202,24 +220,6 @@ export default function DashboardPage() {
                                     {isBodyExpanded ? '▲' : '▼'}
                                   </button>
                                 )}
-                              </div>
-                            </td>
-                            <td style={styles.td}>
-                              <div style={styles.actionButtons}>
-                                <a
-                                  href={email.editUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  style={styles.editButton}
-                                >
-                                  Edit Email
-                                </a>
-                                <button
-                                  onClick={() => setSelectedEmail(email)}
-                                  style={styles.previewButton}
-                                >
-                                  Preview
-                                </button>
                               </div>
                             </td>
                           </tr>
@@ -415,6 +415,7 @@ const styles = {
   table: {
     width: '100%',
     borderCollapse: 'collapse' as const,
+    tableLayout: 'fixed' as const,
   },
   th: {
     padding: '15px',
