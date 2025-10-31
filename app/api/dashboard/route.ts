@@ -223,30 +223,32 @@ export async function GET(request: NextRequest) {
     }
 
     // Step 6: Format workflow data
-    const workflows: HubSpotWorkflow[] = workflowsWithEmails.flatMap(workflow => {
-      const workflowId = workflow.id ?? workflow.workflowId;
-      if (!workflowId) {
-        return [];
-      }
+    const workflows: HubSpotWorkflow[] = workflowsWithEmails
+      .map(workflow => {
+        const workflowId = workflow.id ?? workflow.workflowId;
+        if (!workflowId) {
+          return null;
+        }
 
-      const workflowIdStr = workflowId.toString();
-      const emailCampaigns = workflowEmailMap.get(workflowIdStr) || [];
-      const emailIds = emailCampaigns
-        .map(c => c.emailCampaignId?.toString())
-        .filter((id): id is string => !!id);
+        const workflowIdStr = workflowId.toString();
+        const emailCampaigns = workflowEmailMap.get(workflowIdStr) || [];
+        const emailIds = emailCampaigns
+          .map(c => c.emailCampaignId?.toString())
+          .filter((id): id is string => !!id);
 
-      return [{
-        id: workflowIdStr,
-        name: workflow.name || 'Unnamed Workflow',
-        type: workflow.type || 'UNKNOWN',
-        enabled: workflow.isEnabled || false,
-        insertedAt: new Date(workflow.createdAt).getTime(),
-        updatedAt: new Date(workflow.updatedAt).getTime(),
-        lastExecutedAt: undefined,
-        marketingEmailCount: emailIds.length,
-        marketingEmailIds: emailIds,
-      }];
-    });
+        return {
+          id: workflowIdStr,
+          name: workflow.name || 'Unnamed Workflow',
+          type: workflow.type || 'UNKNOWN',
+          enabled: workflow.isEnabled || false,
+          insertedAt: new Date(workflow.createdAt).getTime(),
+          updatedAt: new Date(workflow.updatedAt).getTime(),
+          lastExecutedAt: undefined,
+          marketingEmailCount: emailIds.length,
+          marketingEmailIds: emailIds,
+        };
+      })
+      .filter((workflow): workflow is HubSpotWorkflow => workflow !== null);
 
     // Step 7: Format email data
     const emails: HubSpotMarketingEmail[] = emailDetails.map(email => {
