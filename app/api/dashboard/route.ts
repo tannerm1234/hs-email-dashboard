@@ -31,7 +31,6 @@ export async function GET(request: NextRequest) {
   try {
     const accessToken = process.env.HUBSPOT_TOKEN;
     const portalId = process.env.HUBSPOT_PORTAL_ID;
-    const maxWorkflows = parseInt(process.env.MAX_WORKFLOWS || '25');
     const apiDelay = parseInt(process.env.API_DELAY_MS || '250');
 
     if (!accessToken || !portalId) {
@@ -39,7 +38,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Step 1: Get all workflows
-    const response = await fetchWithRetry(`${HUBSPOT_API_BASE}/automation/v4/flows?limit=${maxWorkflows}`, {
+    const response = await fetchWithRetry(`${HUBSPOT_API_BASE}/automation/v4/flows?limit=25`, {
       headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     });
 
