@@ -167,11 +167,11 @@ export default function DashboardPage() {
                   <table style={styles.table}>
                     <thead>
                       <tr>
-                        <th style={{...styles.th, width: '20%'}}>Email Name</th>
-                        <th style={{...styles.th, width: '20%'}}>Subject Line</th>
-                        <th style={{...styles.th, width: '15%'}}>Actions</th>
-                        <th style={{...styles.th, width: '20%'}}>From Name</th>
-                        <th style={{...styles.th, width: '25%'}}>Body Preview</th>
+                        <th style={{...styles.th, width: '15%'}}>Email Name</th>
+                        <th style={{...styles.th, width: '15%'}}>Subject Line</th>
+                        <th style={{...styles.th, width: '7.5%'}}>Actions</th>
+                        <th style={{...styles.th, width: '7.5%'}}>From Name</th>
+                        <th style={{...styles.th, width: '55%'}}>Body Preview</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -180,11 +180,16 @@ export default function DashboardPage() {
                         
                         return (
                           <tr key={email.id} style={styles.tr}>
-                            <td style={{...styles.td, width: '20%'}}>
-                              <strong>{email.name}</strong>
-                            </td>
-                            <td style={{...styles.td, width: '20%'}}>{email.subject || 'No subject'}</td>
                             <td style={{...styles.td, width: '15%'}}>
+                              <div style={styles.emailNameCell}>
+                                {email.emailSequence && (
+                                  <span style={styles.sequenceNumber}>#{email.emailSequence}</span>
+                                )}
+                                <strong>{email.name}</strong>
+                              </div>
+                            </td>
+                            <td style={{...styles.td, width: '15%'}}>{email.subject || 'No subject'}</td>
+                            <td style={{...styles.td, width: '7.5%'}}>
                               <div style={styles.actionButtons}>
                                 <a
                                   href={email.editUrl}
@@ -202,8 +207,8 @@ export default function DashboardPage() {
                                 </button>
                               </div>
                             </td>
-                            <td style={{...styles.td, width: '20%'}}>{email.fromName || 'N/A'}</td>
-                            <td style={{...styles.td, width: '25%'}}>
+                            <td style={{...styles.td, width: '7.5%'}}>{email.fromName || 'N/A'}</td>
+                            <td style={{...styles.td, width: '55%'}}>
                               <div style={styles.bodyPreviewContainer}>
                                 <div style={{
                                   ...styles.bodyPreview,
@@ -433,6 +438,21 @@ const styles = {
     padding: '15px',
     fontSize: '14px',
     verticalAlign: 'top' as const,
+  },
+  emailNameCell: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  sequenceNumber: {
+    backgroundColor: '#007bff',
+    color: 'white',
+    padding: '2px 8px',
+    borderRadius: '4px',
+    fontSize: '12px',
+    fontWeight: 'bold',
+    minWidth: '30px',
+    textAlign: 'center' as const,
   },
   bodyPreviewContainer: {
     display: 'flex',

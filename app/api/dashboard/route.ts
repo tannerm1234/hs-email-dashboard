@@ -133,6 +133,134 @@ export async function GET(request: NextRequest) {
 
     console.log(`Created ${emailWorkflowPairs.length} email-workflow pairs`);
 
+    // Step 4: SAFE WORKFLOW SEQUENCING (won't break if it fails)
+    try {
+      console.log('Starting workflow sequencing analysis...');
+      
+      // 4a: Fetch all workflows from v4 API with pagination
+      let allWorkflows: any[] = [];
+      let workflowNextUrl: string | null = `${HUBSPOT_API_BASE}/automation/v4/flows?limit=100`;
+      
+      while (workflowNextUrl) {
+        await delay(apiDelay);
+        const workflowResponse: Response = await fetch(workflowNextUrl, { headers });
+        
+        if (workflowResponse.ok) {
+          const workflowData = await workflowResponse.json();
+          const batchWorkflows = workflowData.results || [];
+          allWorkflows = allWorkflows.concat(batchWorkflows);
+          
+          console.log(`Fetched ${batchWorkflows.length} workflows, total: ${allWorkflows.length}`);
+          
+          if (workflowData.paging?.next?.after) {
+            workflowNextUrl = `${HUBSPOT_API_BASE}/automation/v4/flows?limit=100&after=${workflowData.paging.next.after}`;
+          } else {
+            workflowNextUrl = null;
+          }
+        } else {
+          console.warn('Failed to fetch workflows, skipping sequencing');
+          workflowNextUrl = null;
+        }
+      }
+      
+      console.log(`Total workflows fetched: ${allWorkflows.length}`);
+      
+      // 4b: Create map of workflow name to workflow ID for detailed fetch
+      const workflowNameToDetailId = new Map<string, string>();
+      allWorkflows.forEach(wf => {
+        if (wf.name && wf.id) {
+          workflowNameToDetailId.set(wf.name, wf.id);
+        }
+      });
+      
+      // 4c: Get unique workflow names from our email pairs
+      const uniqueWorkflowNames = new Set<string>();
+      emailWorkflowPairs.forEach((pair: any) => {
+        if (pair.workflowName) {
+          uniqueWorkflowNames.add(pair.workflowName);
+        }
+      });
+      
+      console.log(`Found ${uniqueWorkflowNames.size} unique workflows to analyze`);
+      
+      // 4d: For each workflow, fetch detailed actions and find email sequence
+      const workflowEmailSequences = new Map<string, Map<string, number>>();
+      
+      for (const workflowName of uniqueWorkflowNames) {
+        const flowId = workflowNameToDetailId.get(workflowName);
+        
+        if (!flowId) {
+          console.warn(`No flowId found for workflow: ${workflowName}`);
+          continue;
+        }
+        
+        try {
+          await delay(apiDelay);
+          const detailResponse: Response = await fetch(
+            `${HUBSPOT_API_BASE}/automation/v4/flows/${flowId}`,
+            { headers }
+          );
+          
+          if (!detailResponse.ok) {
+            console.warn(`Failed to fetch details for workflow ${flowId}`);
+            continue;
+          }
+          
+          const flowDetail = await detailResponse.json();
+          const actions = flowDetail.actions || [];
+          
+          // Find all email send actions (actionTypeId: "0-4")
+          const emailActions = actions.filter((action: any) => 
+            action.actionTypeId === "0-4"
+          );
+          
+          if (emailActions.length === 0) {
+            continue;
+          }
+          
+          // Sort by actionId (which represents the order in workflow)
+          emailActions.sort((a: any, b: any) => {
+            const aId = parseInt(a.actionId) || 0;
+            const bId = parseInt(b.actionId) || 0;
+            return aId - bId;
+          });
+          
+          // Create map of email ID to sequence number
+          const emailSequenceMap = new Map<string, number>();
+          emailActions.forEach((action: any, index: number) => {
+            // Email ID is in action.body.content_id or action.fields.content_id
+            const emailId = action.body?.content_id || action.fields?.content_id;
+            if (emailId) {
+              emailSequenceMap.set(emailId.toString(), index + 1);
+            }
+          });
+          
+          workflowEmailSequences.set(workflowName, emailSequenceMap);
+          console.log(`Workflow "${workflowName}": Found ${emailSequenceMap.size} email sequences`);
+          
+        } catch (error) {
+          console.error(`Error processing workflow ${workflowName}:`, error);
+          continue;
+        }
+      }
+      
+      // 4e: Add sequence numbers to email pairs
+      emailWorkflowPairs.forEach((pair: any) => {
+        const sequenceMap = workflowEmailSequences.get(pair.workflowName);
+        if (sequenceMap && pair.emailId) {
+          pair.emailSequence = sequenceMap.get(pair.emailId) || null;
+        } else {
+          pair.emailSequence = null;
+        }
+      });
+      
+      console.log('Workflow sequencing completed successfully');
+      
+    } catch (error) {
+      console.error('Error in workflow sequencing (non-critical):', error);
+      // Don't fail - just continue without sequence numbers
+    }
+
     // Convert workflow map to array for stats
     const workflows: HubSpotWorkflow[] = Array.from(workflowMap.entries()).map(([name, data]) => ({
       id: data.id,
