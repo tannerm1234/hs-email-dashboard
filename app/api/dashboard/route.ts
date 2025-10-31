@@ -57,23 +57,18 @@ export async function GET(request: NextRequest) {
     
     console.log(`Total emails fetched after pagination: ${allEmails.length}`);
 
-    // Filter to only emails used in workflows AND published
+    // Filter to only emails used in workflows
     const emailsInWorkflows = allEmails.filter((email: any) => 
-      email.workflowNames && 
-      email.workflowNames.length > 0 &&
-      email.publishedAt !== null && 
-      email.publishedAt !== undefined &&
-      email.state === 'PUBLISHED'
+      email.workflowNames && email.workflowNames.length > 0
     );
 
-    console.log(`${emailsInWorkflows.length} emails are used in workflows and published`);
+    console.log(`${emailsInWorkflows.length} emails are used in workflows`);
 
     // Step 2: Get all workflows using v3 API to get IDs
     const workflowsUrl = `${HUBSPOT_API_BASE}/automation/v3/workflows`;
     const workflowsResponse = await fetch(workflowsUrl, { headers });
     
     let workflowNameToId = new Map<string, string>();
-    let workflowNameToUpdatedAt = new Map<string, number>();
     
     if (workflowsResponse.ok) {
       const workflowsData = await workflowsResponse.json();
@@ -81,9 +76,6 @@ export async function GET(request: NextRequest) {
       
       workflows.forEach((wf: any) => {
         workflowNameToId.set(wf.name, wf.id.toString());
-        if (wf.updatedAt) {
-          workflowNameToUpdatedAt.set(wf.name, wf.updatedAt);
-        }
       });
       
       console.log(`Mapped ${workflowNameToId.size} workflow names to IDs from v3 API`);
@@ -105,7 +97,6 @@ export async function GET(request: NextRequest) {
             id: workflowId,
             name: workflowName,
             emailCount: 0,
-            updatedAt: workflowNameToUpdatedAt.get(workflowName) || Date.now(),
           });
         }
         workflowMap.get(workflowName)!.emailCount++;
@@ -350,7 +341,7 @@ export async function GET(request: NextRequest) {
       type: 'AUTOMATED',
       enabled: true,
       insertedAt: 0,
-      updatedAt: data.updatedAt || Date.now(), // Include updatedAt from workflow details
+      updatedAt: Date.now(),
       lastExecutedAt: undefined,
       marketingEmailCount: data.emailCount,
       marketingEmailIds: [],

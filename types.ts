@@ -16,14 +16,13 @@ export interface HubSpotMarketingEmail {
   name: string;
   subject: string;
   htmlBody: string;
-  htmlContent?: string; // Add field for rendered HTML content
   previewUrl: string;
   editUrl: string;
   workflowIds: string[];
   workflowNames: string[];
   fromName?: string;
   bodyText?: string;
-  emailSequence?: number | null; // Can be edited by user
+  emailSequence?: number | null;
 }
 
 export interface EnrollmentStats {
