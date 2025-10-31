@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     while (nextUrl) {
       console.log('Fetching from:', nextUrl);
       
-      const emailsResponse = await fetch(nextUrl, { headers });
+      const emailsResponse: Response = await fetch(nextUrl, { headers });
       
       if (!emailsResponse.ok) {
         const errorText = await emailsResponse.text();
