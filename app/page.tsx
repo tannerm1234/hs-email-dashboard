@@ -78,6 +78,15 @@ export default function DashboardPage() {
     return null;
   }
 
+  const targetWorkflowId = '587494732';
+  const targetEmailId = '170633551794';
+
+  const targetWorkflow = data.workflows.find((workflow) => workflow.id === targetWorkflowId);
+  const emailsInTargetWorkflow = data.emails.filter((email) =>
+    email.workflowIds.includes(targetWorkflowId)
+  );
+  const targetEmail = data.emails.find((email) => email.id === targetEmailId);
+
   return (
     <div style={styles.container}>
       <header style={styles.header}>
@@ -196,6 +205,129 @@ export default function DashboardPage() {
             </div>
           ))}
         </div>
+      </section>
+
+      <section style={styles.section}>
+        <h2 style={styles.sectionTitle}>Workflow 587494732 Emails</h2>
+        <p style={styles.sectionSubtitle}>
+          {targetWorkflow
+            ? `Showing marketing emails currently associated with "${targetWorkflow.name}" (ID ${targetWorkflowId}).`
+            : `No workflow data found for ID ${targetWorkflowId}.`}
+        </p>
+        {emailsInTargetWorkflow.length > 0 ? (
+          <div style={styles.emailGrid}>
+            {emailsInTargetWorkflow.map((email) => (
+              <div key={email.id} style={styles.emailCard}>
+                <div style={styles.emailHeader}>
+                  <h3 style={styles.emailName}>{email.name}</h3>
+                  <div style={styles.emailActions}>
+                    <a
+                      href={email.previewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={styles.previewLink}
+                    >
+                      Preview
+                    </a>
+                    <a
+                      href={email.editUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={styles.editLink}
+                    >
+                      Edit
+                    </a>
+                  </div>
+                </div>
+                <p style={styles.detailText}>
+                  <strong>Email ID:</strong> {email.id}
+                </p>
+                <p style={styles.detailText}>
+                  <strong>Subject:</strong> {email.subject || 'No subject'}
+                </p>
+                <div style={styles.emailWorkflows}>
+                  <strong>Used in workflows:</strong>
+                  {email.workflowNames.length > 0 ? (
+                    <ul style={styles.workflowList}>
+                      {email.workflowNames.map((name, index) => (
+                        <li key={index}>{name}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span style={styles.noWorkflows}> None</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={styles.infoCard}>
+            <p style={styles.detailText}>
+              No marketing emails are currently associated with workflow {targetWorkflowId}.
+            </p>
+          </div>
+        )}
+      </section>
+
+      <section style={styles.section}>
+        <h2 style={styles.sectionTitle}>Email Detail: 170633551794</h2>
+        {targetEmail ? (
+          <div style={styles.infoCard}>
+            <p style={styles.detailText}>
+              <strong>Name:</strong> {targetEmail.name}
+            </p>
+            <p style={styles.detailText}>
+              <strong>Subject:</strong> {targetEmail.subject || 'No subject provided'}
+            </p>
+            <p style={styles.detailText}>
+              <strong>Email ID:</strong> {targetEmail.id}
+            </p>
+            <p style={styles.detailText}>
+              <strong>Preview URL:</strong>{' '}
+              <a
+                href={targetEmail.previewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={styles.detailLink}
+              >
+                {targetEmail.previewUrl}
+              </a>
+            </p>
+            <p style={styles.detailText}>
+              <strong>Edit URL:</strong>{' '}
+              <a
+                href={targetEmail.editUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={styles.detailLink}
+              >
+                {targetEmail.editUrl}
+              </a>
+            </p>
+            <div style={styles.detailBlock}>
+              <strong>Used in workflows:</strong>
+              {targetEmail.workflowNames.length > 0 ? (
+                <ul style={styles.workflowList}>
+                  {targetEmail.workflowNames.map((name, index) => (
+                    <li key={index}>{name}</li>
+                  ))}
+                </ul>
+              ) : (
+                <span style={styles.noWorkflows}> None</span>
+              )}
+            </div>
+            <details style={styles.detailDisclosure}>
+              <summary style={styles.detailSummary}>View HTML Body</summary>
+              <pre style={styles.detailPre}>{targetEmail.htmlBody || 'No HTML body available.'}</pre>
+            </details>
+          </div>
+        ) : (
+          <div style={styles.infoCard}>
+            <p style={styles.detailText}>
+              No data was returned for marketing email {targetEmailId}.
+            </p>
+          </div>
+        )}
       </section>
 
       {selectedEmail && (
@@ -381,6 +513,50 @@ const styles = {
     color: '#333',
     margin: 0,
     flex: 1,
+  },
+  sectionSubtitle: {
+    fontSize: '14px',
+    color: '#666',
+    margin: '8px 0 20px 0',
+  },
+  infoCard: {
+    backgroundColor: 'white',
+    padding: '20px',
+    borderRadius: '8px',
+    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+  },
+  detailText: {
+    fontSize: '14px',
+    color: '#444',
+    margin: '8px 0',
+    wordBreak: 'break-word' as const,
+  },
+  detailLink: {
+    color: '#007bff',
+    textDecoration: 'none',
+    wordBreak: 'break-all' as const,
+  },
+  detailBlock: {
+    marginTop: '12px',
+  },
+  detailDisclosure: {
+    marginTop: '16px',
+  },
+  detailSummary: {
+    cursor: 'pointer',
+    color: '#007bff',
+    fontWeight: '500',
+  },
+  detailPre: {
+    marginTop: '12px',
+    backgroundColor: '#1F2937',
+    color: '#F9FAFB',
+    padding: '16px',
+    borderRadius: '6px',
+    maxHeight: '300px',
+    overflowY: 'auto' as const,
+    whiteSpace: 'pre-wrap' as const,
+    fontSize: '12px',
   },
   emailActions: {
     display: 'flex',
