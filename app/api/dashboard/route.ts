@@ -69,6 +69,7 @@ export async function GET(request: NextRequest) {
     const workflowsResponse = await fetch(workflowsUrl, { headers });
     
     let workflowNameToId = new Map<string, string>();
+    let workflowNameToUpdatedAt = new Map<string, number>();
     
     if (workflowsResponse.ok) {
       const workflowsData = await workflowsResponse.json();
@@ -76,6 +77,9 @@ export async function GET(request: NextRequest) {
       
       workflows.forEach((wf: any) => {
         workflowNameToId.set(wf.name, wf.id.toString());
+        if (wf.updatedAt) {
+          workflowNameToUpdatedAt.set(wf.name, wf.updatedAt);
+        }
       });
       
       console.log(`Mapped ${workflowNameToId.size} workflow names to IDs from v3 API`);
@@ -97,6 +101,7 @@ export async function GET(request: NextRequest) {
             id: workflowId,
             name: workflowName,
             emailCount: 0,
+            updatedAt: workflowNameToUpdatedAt.get(workflowName) || Date.now(),
           });
         }
         workflowMap.get(workflowName)!.emailCount++;
@@ -341,7 +346,7 @@ export async function GET(request: NextRequest) {
       type: 'AUTOMATED',
       enabled: true,
       insertedAt: 0,
-      updatedAt: Date.now(),
+      updatedAt: data.updatedAt || Date.now(), // Include updatedAt from workflow details
       lastExecutedAt: undefined,
       marketingEmailCount: data.emailCount,
       marketingEmailIds: [],
