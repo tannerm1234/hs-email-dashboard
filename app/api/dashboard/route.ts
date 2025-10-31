@@ -185,6 +185,7 @@ export async function GET(request: NextRequest) {
       
       // 4d: For each workflow, fetch detailed actions and find email sequence
       const workflowEmailSequences = new Map<string, Map<string, number>>();
+      const workflowValidEmails = new Map<string, Set<string>>(); // Track which emails are actually in workflow
       
       for (const workflowName of uniqueWorkflowNames) {
         const flowId = workflowNameToDetailId.get(workflowName);
@@ -208,35 +209,87 @@ export async function GET(request: NextRequest) {
           
           const flowDetail = await detailResponse.json();
           const actions = flowDetail.actions || [];
+          const startActionId = flowDetail.startActionId;
           
-          // Find all email send actions (actionTypeId: "0-4")
-          const emailActions = actions.filter((action: any) => 
-            action.actionTypeId === "0-4"
-          );
-          
-          if (emailActions.length === 0) {
+          if (!startActionId || actions.length === 0) {
+            console.warn(`No startActionId or actions for workflow ${flowId}`);
             continue;
           }
           
-          // Sort by actionId (which represents the order in workflow)
-          emailActions.sort((a: any, b: any) => {
-            const aId = parseInt(a.actionId) || 0;
-            const bId = parseInt(b.actionId) || 0;
-            return aId - bId;
-          });
-          
-          // Create map of email ID to sequence number
-          const emailSequenceMap = new Map<string, number>();
-          emailActions.forEach((action: any, index: number) => {
-            // Email ID is in action.body.content_id or action.fields.content_id
-            const emailId = action.body?.content_id || action.fields?.content_id;
-            if (emailId) {
-              emailSequenceMap.set(emailId.toString(), index + 1);
+          // Build action lookup map
+          const actionMap = new Map<string, any>();
+          actions.forEach((action: any) => {
+            if (action.actionId) {
+              actionMap.set(action.actionId, action);
             }
           });
           
+          // Traverse workflow from startActionId following connections
+          const emailSequence: Array<{ emailId: string; order: number }> = [];
+          const visited = new Set<string>();
+          let orderCounter = 1;
+          
+          const traverseAction = (actionId: string) => {
+            if (!actionId || visited.has(actionId)) return;
+            visited.add(actionId);
+            
+            const action = actionMap.get(actionId);
+            if (!action) return;
+            
+            // If this is an email send action, record it
+            if (action.actionTypeId === "0-4") {
+              const emailId = action.body?.content_id || action.fields?.content_id;
+              if (emailId) {
+                emailSequence.push({ emailId: emailId.toString(), order: orderCounter++ });
+              }
+            }
+            
+            // Follow connections
+            if (action.connection?.nextActionId) {
+              traverseAction(action.connection.nextActionId);
+            }
+            
+            // Handle branches
+            if (action.staticBranches) {
+              action.staticBranches.forEach((branch: any) => {
+                if (branch.connection?.nextActionId) {
+                  traverseAction(branch.connection.nextActionId);
+                }
+              });
+            }
+            
+            if (action.listBranches) {
+              action.listBranches.forEach((branch: any) => {
+                if (branch.connection?.nextActionId) {
+                  traverseAction(branch.connection.nextActionId);
+                }
+              });
+            }
+            
+            if (action.defaultBranch?.nextActionId) {
+              traverseAction(action.defaultBranch.nextActionId);
+            }
+          };
+          
+          // Start traversal
+          traverseAction(startActionId);
+          
+          if (emailSequence.length === 0) {
+            continue;
+          }
+          
+          // Create map of email ID to sequence number
+          const emailSequenceMap = new Map<string, number>();
+          const validEmailSet = new Set<string>();
+          
+          emailSequence.forEach(({ emailId, order }) => {
+            emailSequenceMap.set(emailId, order);
+            validEmailSet.add(emailId);
+          });
+          
           workflowEmailSequences.set(workflowName, emailSequenceMap);
-          console.log(`Workflow "${workflowName}": Found ${emailSequenceMap.size} email sequences`);
+          workflowValidEmails.set(workflowName, validEmailSet);
+          console.log(`Workflow "${workflowName}": Found ${emailSequenceMap.size} emails in execution order`);
           
         } catch (error) {
           console.error(`Error processing workflow ${workflowName}:`, error);
@@ -244,15 +297,35 @@ export async function GET(request: NextRequest) {
         }
       }
       
-      // 4e: Add sequence numbers to email pairs
+      // 4e: Filter email pairs to only include emails that exist in current workflow
+      // AND add sequence numbers
+      const filteredEmailPairs: any[] = [];
+      
       emailWorkflowPairs.forEach((pair: any) => {
-        const sequenceMap = workflowEmailSequences.get(pair.workflowName);
-        if (sequenceMap && pair.emailId) {
-          pair.emailSequence = sequenceMap.get(pair.emailId) || null;
+        const validEmails = workflowValidEmails.get(pair.workflowName);
+        
+        // If we have valid email info for this workflow, check if email is valid
+        if (validEmails) {
+          // Only include if email is in the current workflow
+          if (validEmails.has(pair.emailId)) {
+            const sequenceMap = workflowEmailSequences.get(pair.workflowName);
+            pair.emailSequence = sequenceMap?.get(pair.emailId) || null;
+            filteredEmailPairs.push(pair);
+          } else {
+            console.log(`Filtering out removed email ${pair.emailId} from workflow ${pair.workflowName}`);
+          }
         } else {
+          // If we don't have workflow detail info, keep the email (fail-safe)
           pair.emailSequence = null;
+          filteredEmailPairs.push(pair);
         }
       });
+      
+      console.log(`Filtered from ${emailWorkflowPairs.length} to ${filteredEmailPairs.length} email pairs`);
+      
+      // Replace emailWorkflowPairs with filtered version
+      emailWorkflowPairs.length = 0;
+      emailWorkflowPairs.push(...filteredEmailPairs);
       
       console.log('Workflow sequencing completed successfully');
       

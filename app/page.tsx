@@ -175,7 +175,17 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(emails as any[]).map((email) => {
+                      {(emails as any[])
+                        .sort((a, b) => {
+                          // Sort by sequence: numbered first (1-n), then unnumbered at bottom
+                          if (a.emailSequence && b.emailSequence) {
+                            return a.emailSequence - b.emailSequence;
+                          }
+                          if (a.emailSequence && !b.emailSequence) return -1;
+                          if (!a.emailSequence && b.emailSequence) return 1;
+                          return 0;
+                        })
+                        .map((email) => {
                         const isBodyExpanded = expandedBodyPreviews.has(email.id);
                         
                         return (
