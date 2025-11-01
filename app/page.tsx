@@ -53,10 +53,10 @@ function SortableEmailRow({
 
   return (
     <tr ref={setNodeRef} style={{...styles.tr, ...style}}>
-      <td style={{...styles.td, width: '3%', cursor: 'grab'}} {...listeners} {...attributes}>
+      <td style={{...styles.td, width: '2%', cursor: 'grab'}} {...listeners} {...attributes}>
         <span style={styles.dragHandle}>⋮⋮</span>
       </td>
-      <td style={{...styles.td, width: '12%'}}>
+      <td style={{...styles.td, width: '10%'}}>
         <div style={styles.emailNameCell}>
           <input
             type="number"
@@ -73,7 +73,7 @@ function SortableEmailRow({
         </div>
       </td>
       <td style={{...styles.td, width: '12%'}}>{email.subject || 'No subject'}</td>
-      <td style={{...styles.td, width: '7.5%'}}>
+      <td style={{...styles.td, width: '6%'}}>
         <div style={styles.actionButtons}>
           <a
             href={email.editUrl}
@@ -83,16 +83,13 @@ function SortableEmailRow({
           >
             Edit Email
           </a>
-          <button
-            onClick={() => onPreview(email)}
-            style={styles.previewButton}
-          >
-            Preview
-          </button>
         </div>
       </td>
-      <td style={{...styles.td, width: '7.5%'}}>{email.fromName || 'N/A'}</td>
-      <td style={{...styles.td, width: '58%'}}>
+      <td style={{...styles.td, width: '8%'}}>{email.fromName || 'N/A'}</td>
+      <td style={{...styles.td, width: '5%', textAlign: 'center'}}>{email.sent || 0}</td>
+      <td style={{...styles.td, width: '5%', textAlign: 'center'}}>{email.opened || 0}</td>
+      <td style={{...styles.td, width: '5%', textAlign: 'center'}}>{email.clicked || 0}</td>
+      <td style={{...styles.td, width: '47%'}}>
         <div style={styles.bodyPreviewContainer}>
           <div style={{
             ...styles.bodyPreview,
@@ -345,12 +342,15 @@ export default function DashboardPage() {
                     <table style={styles.table}>
                       <thead>
                         <tr>
-                          <th style={{...styles.th, width: '3%'}}>Move</th>
-                          <th style={{...styles.th, width: '12%'}}>Email Name</th>
+                          <th style={{...styles.th, width: '2%'}}>Move</th>
+                          <th style={{...styles.th, width: '10%'}}>Email Name</th>
                           <th style={{...styles.th, width: '12%'}}>Subject Line</th>
-                          <th style={{...styles.th, width: '7.5%'}}>Actions</th>
-                          <th style={{...styles.th, width: '7.5%'}}>From Name</th>
-                          <th style={{...styles.th, width: '58%'}}>Body Preview</th>
+                          <th style={{...styles.th, width: '6%'}}>Actions</th>
+                          <th style={{...styles.th, width: '8%'}}>From Name</th>
+                          <th style={{...styles.th, width: '5%'}}>Sent</th>
+                          <th style={{...styles.th, width: '5%'}}>Opened</th>
+                          <th style={{...styles.th, width: '5%'}}>Clicked</th>
+                          <th style={{...styles.th, width: '47%'}}>Body Preview</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -585,6 +585,9 @@ const styles = {
     padding: '15px',
     fontSize: '14px',
     verticalAlign: 'top' as const,
+    wordWrap: 'break-word' as const,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
   dragHandle: {
     fontSize: '18px',

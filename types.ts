@@ -23,6 +23,11 @@ export interface HubSpotMarketingEmail {
   fromName?: string;
   bodyText?: string;
   emailSequence?: number | null;
+  sent?: number;
+  opened?: number;
+  clicked?: number;
+  openRate?: number;
+  clickRate?: number;
 }
 
 export interface EnrollmentStats {

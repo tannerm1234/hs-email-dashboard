@@ -112,6 +112,11 @@ export async function GET(request: NextRequest) {
           });
         }
         
+        // Extract stats if available
+        const stats = email.stats || {};
+        const counters = stats.counters || {};
+        const ratios = stats.ratios || {};
+        
         // Create a unique entry for this email-workflow pair
         emailWorkflowPairs.push({
           id: `${email.id}-${workflowId}`, // Unique ID for this pairing
@@ -127,6 +132,12 @@ export async function GET(request: NextRequest) {
           workflowNames: [workflowName], // Keep for compatibility
           fromName: email.from?.fromName || '',
           bodyText: bodyText.trim().substring(0, 500), // First 500 chars for preview
+          // Stats
+          sent: counters.sent || 0,
+          opened: counters.open || 0,
+          clicked: counters.click || 0,
+          openRate: ratios.open || 0,
+          clickRate: ratios.click || 0,
         });
       });
     });
@@ -334,18 +345,53 @@ export async function GET(request: NextRequest) {
       // Don't fail - just continue without sequence numbers
     }
 
+    // Step 5: Fetch individual workflow details to get updatedAt timestamps
+    const workflowDetailsMap = new Map<string, any>();
+    try {
+      console.log('Fetching individual workflow details for updatedAt timestamps...');
+      
+      for (const [workflowName, workflowData] of workflowMap.entries()) {
+        const workflowId = workflowData.id;
+        
+        try {
+          await delay(apiDelay);
+          const detailResponse = await fetch(
+            `${HUBSPOT_API_BASE}/automation/v3/workflows/${workflowId}`,
+            { headers }
+          );
+          
+          if (detailResponse.ok) {
+            const detail = await detailResponse.json();
+            workflowDetailsMap.set(workflowName, detail);
+            console.log(`Fetched details for workflow: ${workflowName}`);
+          } else {
+            console.warn(`Failed to fetch details for workflow ${workflowId}`);
+          }
+        } catch (error) {
+          console.error(`Error fetching details for workflow ${workflowName}:`, error);
+        }
+      }
+      
+      console.log(`Successfully fetched details for ${workflowDetailsMap.size} workflows`);
+    } catch (error) {
+      console.error('Error fetching workflow details (non-critical):', error);
+    }
+
     // Convert workflow map to array for stats
-    const workflows: HubSpotWorkflow[] = Array.from(workflowMap.entries()).map(([name, data]) => ({
-      id: data.id,
-      name: data.name,
-      type: 'AUTOMATED',
-      enabled: true,
-      insertedAt: 0,
-      updatedAt: Date.now(),
-      lastExecutedAt: undefined,
-      marketingEmailCount: data.emailCount,
-      marketingEmailIds: [],
-    }));
+    const workflows: HubSpotWorkflow[] = Array.from(workflowMap.entries()).map(([name, data]) => {
+      const details = workflowDetailsMap.get(name);
+      return {
+        id: data.id,
+        name: data.name,
+        type: 'AUTOMATED',
+        enabled: true,
+        insertedAt: 0,
+        updatedAt: details?.updatedAt || Date.now(),
+        lastExecutedAt: undefined,
+        marketingEmailCount: data.emailCount,
+        marketingEmailIds: [],
+      };
+    });
 
     // Create placeholder enrollment stats
     const enrollmentStats: EnrollmentStats[] = workflows.map(wf => ({
