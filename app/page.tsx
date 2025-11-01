@@ -20,18 +20,163 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
+// Helper function to clean personalization tokens
+function cleanPersonalizationTokens(text: string): string {
+  if (!text) return text;
+  
+  // Match {{ personalization_token('fieldname', 'backup_value') }}
+  const regex = /\{\{\s*personalization_token\(['"]([^'"]+)['"],\s*['"][^'"]*['"]\)\s*\}\}/g;
+  return text.replace(regex, '$1');
+}
+
+// Sortable Workflow Group component
+function SortableWorkflowGroup({ 
+  workflowName,
+  workflowId,
+  emails,
+  isExpanded,
+  workflowInfo,
+  note,
+  portalId,
+  onToggle,
+  onNoteClick,
+  onDragEnd,
+  onSequenceChange,
+  onBodyToggle,
+  expandedBodyPreviews,
+  sensors
+}: any) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: workflowName });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.8 : 1,
+  };
+
+  const sortedEmails = [...emails].sort((a: any, b: any) => {
+    if (a.emailSequence && b.emailSequence) {
+      return a.emailSequence - b.emailSequence;
+    }
+    if (a.emailSequence && !b.emailSequence) return -1;
+    if (!a.emailSequence && b.emailSequence) return 1;
+    return 0;
+  });
+
+  return (
+    <div ref={setNodeRef} style={{...styles.workflowGroup, ...style}}>
+      <div 
+        style={styles.workflowHeader}
+      >
+        <div style={styles.workflowHeaderContent}>
+          <span 
+            style={{...styles.dragHandle, cursor: 'grab', marginRight: '8px'}}
+            {...listeners} 
+            {...attributes}
+          >
+            ⋮⋮
+          </span>
+          <span 
+            style={styles.expandIcon}
+            onClick={() => onToggle(workflowName)}
+          >
+            {isExpanded ? '▼' : '▶'}
+          </span>
+          <a
+            href={`https://app.hubspot.com/workflows/${portalId}/platform/flow/${workflowId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={styles.workflowName}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {workflowName}
+          </a>
+          <span style={styles.emailCount}>({emails.length} email{emails.length !== 1 ? 's' : ''})</span>
+          
+          {note && (
+            <span style={styles.notePreview}>
+              📝 {note.substring(0, 50)}{note.length > 50 ? '...' : ''}
+            </span>
+          )}
+          
+          <button
+            onClick={() => onNoteClick(workflowName)}
+            style={note ? styles.editNoteButton : styles.addNoteButton}
+          >
+            {note ? 'Edit Note' : '+ Add Note'}
+          </button>
+          
+          {workflowInfo && workflowInfo.updatedAt && (
+            <span style={styles.lastUpdated}>
+              Last updated: {new Date(workflowInfo.updatedAt).toLocaleDateString()}
+            </span>
+          )}
+        </div>
+      </div>
+      
+      {isExpanded && (
+        <div style={styles.tableContainer}>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={(event) => onDragEnd(event, workflowName)}
+          >
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={{...styles.th, width: '2%'}}></th>
+                  <th style={{...styles.th, width: '10%'}}>Email Name</th>
+                  <th style={{...styles.th, width: '12%'}}>Subject Line</th>
+                  <th style={{...styles.th, width: '8%'}}>Actions</th>
+                  <th style={{...styles.th, width: '7%'}}>From Name</th>
+                  <th style={{...styles.th, width: '5%'}}>Sent</th>
+                  <th style={{...styles.th, width: '5%'}}>Opened</th>
+                  <th style={{...styles.th, width: '5%'}}>Clicked</th>
+                  <th style={{...styles.th, width: '46%'}}>Body Preview</th>
+                </tr>
+              </thead>
+              <tbody>
+                <SortableContext
+                  items={sortedEmails.map((e: any) => e.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {sortedEmails.map((email: any) => (
+                    <SortableEmailRow
+                      key={email.id}
+                      email={email}
+                      onSequenceChange={onSequenceChange}
+                      onBodyToggle={onBodyToggle}
+                      isBodyExpanded={expandedBodyPreviews.has(email.id)}
+                      portalId={portalId}
+                    />
+                  ))}
+                </SortableContext>
+              </tbody>
+            </table>
+          </DndContext>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Sortable row component
 function SortableEmailRow({ 
   email, 
   onSequenceChange,
-  onPreview,
   onBodyToggle,
   isBodyExpanded,
   portalId
 }: { 
   email: any;
   onSequenceChange: (id: string, sequence: number | null) => void;
-  onPreview: (email: any) => void;
   onBodyToggle: (id: string) => void;
   isBodyExpanded: boolean;
   portalId: string;
@@ -50,6 +195,10 @@ function SortableEmailRow({
     transition,
     opacity: isDragging ? 0.5 : 1,
   };
+
+  // Clean up the subject and body text
+  const cleanSubject = cleanPersonalizationTokens(email.subject || 'No subject');
+  const cleanBodyText = cleanPersonalizationTokens(email.bodyText || 'No preview');
 
   return (
     <tr ref={setNodeRef} style={{...styles.tr, ...style}}>
@@ -72,8 +221,8 @@ function SortableEmailRow({
           <strong>{email.name}</strong>
         </div>
       </td>
-      <td style={{...styles.td, width: '12%'}}>{email.subject || 'No subject'}</td>
-      <td style={{...styles.td, width: '6%'}}>
+      <td style={{...styles.td, width: '12%'}}>{cleanSubject}</td>
+      <td style={{...styles.td, width: '8%'}}>
         <div style={styles.actionButtons}>
           <a
             href={email.editUrl}
@@ -85,18 +234,18 @@ function SortableEmailRow({
           </a>
         </div>
       </td>
-      <td style={{...styles.td, width: '8%'}}>{email.fromName || 'N/A'}</td>
+      <td style={{...styles.td, width: '7%'}}>{email.fromName || 'N/A'}</td>
       <td style={{...styles.td, width: '5%', textAlign: 'center'}}>{email.sent || 0}</td>
       <td style={{...styles.td, width: '5%', textAlign: 'center'}}>{email.opened || 0}</td>
       <td style={{...styles.td, width: '5%', textAlign: 'center'}}>{email.clicked || 0}</td>
-      <td style={{...styles.td, width: '47%'}}>
+      <td style={{...styles.td, width: '46%'}}>
         <div style={styles.bodyPreviewContainer}>
           <div style={{
             ...styles.bodyPreview,
             whiteSpace: isBodyExpanded ? 'normal' : 'nowrap',
             overflow: isBodyExpanded ? 'visible' : 'hidden'
           }}>
-            {email.bodyText || 'No preview'}
+            {cleanBodyText}
           </div>
           {email.bodyText && email.bodyText.length > 100 && (
             <button
@@ -112,14 +261,58 @@ function SortableEmailRow({
   );
 }
 
+// Note Modal Component
+function NoteModal({ workflowName, currentNote, onSave, onClose }: any) {
+  const [note, setNote] = useState(currentNote || '');
+
+  return (
+    <div style={styles.modal} onClick={onClose}>
+      <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+        <div style={styles.modalHeader}>
+          <div>
+            <h2 style={{margin: 0, fontSize: '20px'}}>Workflow Note</h2>
+            <p style={{margin: '5px 0 0 0', color: '#666', fontSize: '14px'}}>{workflowName}</p>
+          </div>
+          <button onClick={onClose} style={styles.closeButton}>×</button>
+        </div>
+        <div style={styles.modalBody}>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            style={styles.noteTextarea}
+            placeholder="Enter notes about this workflow..."
+            rows={10}
+          />
+        </div>
+        <div style={styles.modalFooter}>
+          <button onClick={onClose} style={styles.cancelButton}>
+            Cancel
+          </button>
+          <button 
+            onClick={() => {
+              onSave(note);
+              onClose();
+            }} 
+            style={styles.saveButton}
+          >
+            Save Note
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedEmail, setSelectedEmail] = useState<HubSpotMarketingEmail | null>(null);
-  const [expandedWorkflows, setExpandedWorkflows] = useState<Set<string>>(new Set()); // Changed: Default to empty set (all collapsed)
+  const [expandedWorkflows, setExpandedWorkflows] = useState<Set<string>>(new Set());
   const [expandedBodyPreviews, setExpandedBodyPreviews] = useState<Set<string>>(new Set());
   const [emailsByWorkflow, setEmailsByWorkflow] = useState<Record<string, any[]>>({});
+  const [workflowOrder, setWorkflowOrder] = useState<string[]>([]);
+  const [workflowNotes, setWorkflowNotes] = useState<Record<string, string>>({});
+  const [showNoteModal, setShowNoteModal] = useState<string | null>(null);
   const portalId = '6885872';
 
   // Drag and drop sensors
@@ -138,6 +331,8 @@ export default function DashboardPage() {
     try {
       setLoading(true);
       setError(null);
+      
+      // Fetch dashboard data
       const response = await fetch('/api/dashboard');
       
       if (!response.ok) {
@@ -148,7 +343,7 @@ export default function DashboardPage() {
       const dashboardData: DashboardData = await response.json();
       setData(dashboardData);
       
-      // Group emails by workflow - NO DEFAULT EXPANSION
+      // Group emails by workflow
       const grouped = dashboardData.emails.reduce((acc: any, email: any) => {
         const workflowName = email.workflowName;
         if (!acc[workflowName]) {
@@ -158,11 +353,70 @@ export default function DashboardPage() {
         return acc;
       }, {});
       
+      // Fetch saved settings
+      try {
+        const settingsResponse = await fetch('/api/workflow-settings');
+        if (settingsResponse.ok) {
+          const settings = await settingsResponse.json();
+          
+          // Apply saved workflow order or use alphabetical
+          const workflowNames = Object.keys(grouped);
+          if (settings.workflowOrder && settings.workflowOrder.length > 0) {
+            // Use saved order, adding any new workflows at the end
+            const savedOrder = settings.workflowOrder.filter((name: string) => workflowNames.includes(name));
+            const newWorkflows = workflowNames.filter((name: string) => !settings.workflowOrder.includes(name)).sort();
+            setWorkflowOrder([...savedOrder, ...newWorkflows]);
+          } else {
+            setWorkflowOrder(workflowNames.sort());
+          }
+          
+          // Load saved notes
+          if (settings.workflowNotes) {
+            setWorkflowNotes(settings.workflowNotes);
+          }
+          
+          // Apply saved email orders
+          if (settings.emailOrders) {
+            Object.keys(settings.emailOrders).forEach(workflowName => {
+              if (grouped[workflowName]) {
+                const savedOrder = settings.emailOrders[workflowName];
+                grouped[workflowName] = grouped[workflowName].sort((a: any, b: any) => {
+                  const aIndex = savedOrder.indexOf(a.id);
+                  const bIndex = savedOrder.indexOf(b.id);
+                  if (aIndex === -1 && bIndex === -1) return 0;
+                  if (aIndex === -1) return 1;
+                  if (bIndex === -1) return -1;
+                  return aIndex - bIndex;
+                });
+              }
+            });
+          }
+        } else {
+          // No saved settings, use alphabetical order
+          setWorkflowOrder(Object.keys(grouped).sort());
+        }
+      } catch (settingsError) {
+        console.error('Error loading settings:', settingsError);
+        setWorkflowOrder(Object.keys(grouped).sort());
+      }
+      
       setEmailsByWorkflow(grouped);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unknown error occurred');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const saveSettings = async (updates: any) => {
+    try {
+      await fetch('/api/workflow-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+    } catch (error) {
+      console.error('Error saving settings:', error);
     }
   };
 
@@ -190,7 +444,26 @@ export default function DashboardPage() {
     });
   };
 
-  const handleDragEnd = (event: DragEndEvent, workflowName: string) => {
+  const handleWorkflowDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    setWorkflowOrder(prev => {
+      const oldIndex = prev.indexOf(active.id as string);
+      const newIndex = prev.indexOf(over.id as string);
+      const newOrder = arrayMove(prev, oldIndex, newIndex);
+      
+      // Save to backend
+      saveSettings({ workflowOrder: newOrder });
+      
+      return newOrder;
+    });
+  };
+
+  const handleEmailDragEnd = (event: DragEndEvent, workflowName: string) => {
     const { active, over } = event;
 
     if (!over || active.id === over.id) {
@@ -203,11 +476,19 @@ export default function DashboardPage() {
       const newIndex = workflowEmails.findIndex(e => e.id === over.id);
 
       const reorderedEmails = arrayMove(workflowEmails, oldIndex, newIndex);
-
-      return {
+      
+      const newState = {
         ...prev,
         [workflowName]: reorderedEmails
       };
+      
+      // Save email order to backend
+      const emailOrders = {
+        [workflowName]: reorderedEmails.map(e => e.id)
+      };
+      saveSettings({ emailOrders });
+
+      return newState;
     });
   };
 
@@ -215,7 +496,6 @@ export default function DashboardPage() {
     setEmailsByWorkflow(prev => {
       const newWorkflows = { ...prev };
       
-      // Find which workflow contains this email
       for (const workflowName in newWorkflows) {
         const emailIndex = newWorkflows[workflowName].findIndex(e => e.id === emailId);
         if (emailIndex !== -1) {
@@ -230,6 +510,17 @@ export default function DashboardPage() {
       
       return newWorkflows;
     });
+  };
+
+  const handleNoteSave = (workflowName: string, note: string) => {
+    const updatedNotes = {
+      ...workflowNotes,
+      [workflowName]: note
+    };
+    setWorkflowNotes(updatedNotes);
+    
+    // Save to backend
+    saveSettings({ workflowNotes: { [workflowName]: note } });
   };
 
   if (loading) {
@@ -261,7 +552,6 @@ export default function DashboardPage() {
     return null;
   }
 
-  // Get workflow info for displaying last updated
   const getWorkflowInfo = (workflowName: string) => {
     return data.workflows.find(w => w.name === workflowName);
   };
@@ -278,7 +568,7 @@ export default function DashboardPage() {
       <div style={styles.stats}>
         <div style={styles.statCard}>
           <h3>Workflows</h3>
-          <p style={styles.statNumber}>{Object.keys(emailsByWorkflow).length}</p>
+          <p style={styles.statNumber}>{workflowOrder.length}</p>
         </div>
         <div style={styles.statCard}>
           <h3>Total Email Instances</h3>
@@ -289,134 +579,55 @@ export default function DashboardPage() {
       <section style={styles.section}>
         <h2 style={styles.sectionTitle}>Emails by Workflow</h2>
         
-        {Object.entries(emailsByWorkflow).sort(([a], [b]) => a.localeCompare(b)).map(([workflowName, emails]: [string, any]) => {
-          const isExpanded = expandedWorkflows.has(workflowName);
-          const workflowInfo = getWorkflowInfo(workflowName);
-          const workflowId = (emails[0] as any).workflowId;
-          
-          // Sort emails for this workflow
-          const sortedEmails = [...emails].sort((a, b) => {
-            if (a.emailSequence && b.emailSequence) {
-              return a.emailSequence - b.emailSequence;
-            }
-            if (a.emailSequence && !b.emailSequence) return -1;
-            if (!a.emailSequence && b.emailSequence) return 1;
-            return 0;
-          });
-          
-          return (
-            <div key={workflowName} style={styles.workflowGroup}>
-              <div 
-                style={styles.workflowHeader}
-                onClick={() => toggleWorkflow(workflowName)}
-              >
-                <div style={styles.workflowHeaderContent}>
-                  <span style={styles.expandIcon}>
-                    {isExpanded ? '▼' : '▶'}
-                  </span>
-                  <a
-                    href={`https://app.hubspot.com/workflows/${portalId}/platform/flow/${workflowId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={styles.workflowName}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {workflowName}
-                  </a>
-                  <span style={styles.emailCount}>({emails.length} email{emails.length !== 1 ? 's' : ''})</span>
-                  {workflowInfo && workflowInfo.updatedAt && (
-                    <span style={styles.lastUpdated}>
-                      Last updated: {new Date(workflowInfo.updatedAt).toLocaleDateString()}
-                    </span>
-                  )}
-                </div>
-              </div>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleWorkflowDragEnd}
+        >
+          <SortableContext
+            items={workflowOrder}
+            strategy={verticalListSortingStrategy}
+          >
+            {workflowOrder.map((workflowName) => {
+              const emails = emailsByWorkflow[workflowName] || [];
+              if (emails.length === 0) return null;
               
-              {isExpanded && (
-                <div style={styles.tableContainer}>
-                  <DndContext
-                    sensors={sensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={(event) => handleDragEnd(event, workflowName)}
-                  >
-                    <table style={styles.table}>
-                      <thead>
-                        <tr>
-                          <th style={{...styles.th, width: '2%'}}>Move</th>
-                          <th style={{...styles.th, width: '10%'}}>Email Name</th>
-                          <th style={{...styles.th, width: '12%'}}>Subject Line</th>
-                          <th style={{...styles.th, width: '6%'}}>Actions</th>
-                          <th style={{...styles.th, width: '8%'}}>From Name</th>
-                          <th style={{...styles.th, width: '5%'}}>Sent</th>
-                          <th style={{...styles.th, width: '5%'}}>Opened</th>
-                          <th style={{...styles.th, width: '5%'}}>Clicked</th>
-                          <th style={{...styles.th, width: '47%'}}>Body Preview</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <SortableContext
-                          items={sortedEmails.map(e => e.id)}
-                          strategy={verticalListSortingStrategy}
-                        >
-                          {sortedEmails.map((email) => (
-                            <SortableEmailRow
-                              key={email.id}
-                              email={email}
-                              onSequenceChange={handleSequenceChange}
-                              onPreview={setSelectedEmail}
-                              onBodyToggle={toggleBodyPreview}
-                              isBodyExpanded={expandedBodyPreviews.has(email.id)}
-                              portalId={portalId}
-                            />
-                          ))}
-                        </SortableContext>
-                      </tbody>
-                    </table>
-                  </DndContext>
-                </div>
-              )}
-            </div>
-          );
-        })}
+              const isExpanded = expandedWorkflows.has(workflowName);
+              const workflowInfo = getWorkflowInfo(workflowName);
+              const workflowId = emails[0]?.workflowId;
+              const note = workflowNotes[workflowName];
+              
+              return (
+                <SortableWorkflowGroup
+                  key={workflowName}
+                  workflowName={workflowName}
+                  workflowId={workflowId}
+                  emails={emails}
+                  isExpanded={isExpanded}
+                  workflowInfo={workflowInfo}
+                  note={note}
+                  portalId={portalId}
+                  onToggle={toggleWorkflow}
+                  onNoteClick={(name: string) => setShowNoteModal(name)}
+                  onDragEnd={handleEmailDragEnd}
+                  onSequenceChange={handleSequenceChange}
+                  onBodyToggle={toggleBodyPreview}
+                  expandedBodyPreviews={expandedBodyPreviews}
+                  sensors={sensors}
+                />
+              );
+            })}
+          </SortableContext>
+        </DndContext>
       </section>
 
-      {/* Email Preview Modal with iframe */}
-      {selectedEmail && (
-        <div style={styles.modal} onClick={() => setSelectedEmail(null)}>
-          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.modalHeader}>
-              <div>
-                <h2>{selectedEmail.name}</h2>
-                <p style={styles.modalSubject}>Subject: {selectedEmail.subject}</p>
-                <p style={styles.modalFrom}>From: {selectedEmail.fromName}</p>
-              </div>
-              <button
-                onClick={() => setSelectedEmail(null)}
-                style={styles.closeButton}
-              >
-                ×
-              </button>
-            </div>
-            <div style={styles.modalBody}>
-              <iframe
-                src={selectedEmail.previewUrl}
-                style={styles.previewIframe}
-                title="Email Preview"
-                sandbox="allow-same-origin"
-              />
-            </div>
-            <div style={styles.modalFooter}>
-              <a
-                href={selectedEmail.editUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={styles.modalEditButton}
-              >
-                Edit in HubSpot
-              </a>
-            </div>
-          </div>
-        </div>
+      {showNoteModal && (
+        <NoteModal
+          workflowName={showNoteModal}
+          currentNote={workflowNotes[showNoteModal]}
+          onSave={(note: string) => handleNoteSave(showNoteModal, note)}
+          onClose={() => setShowNoteModal(null)}
+        />
       )}
     </div>
   );
@@ -526,10 +737,8 @@ const styles = {
     padding: '15px 20px',
     backgroundColor: '#f8f9fa',
     borderBottom: '1px solid #e0e0e0',
-    cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
-    transition: 'background-color 0.2s',
   },
   workflowHeaderContent: {
     display: 'flex',
@@ -542,18 +751,48 @@ const styles = {
     fontSize: '14px',
     color: '#666',
     minWidth: '15px',
+    cursor: 'pointer',
   },
   workflowName: {
     fontSize: '16px',
     fontWeight: 'bold',
     color: '#007bff',
     textDecoration: 'none',
-    flex: 1,
+    flex: '0 0 auto',
   },
   emailCount: {
     fontSize: '14px',
     color: '#666',
     fontWeight: 'normal',
+  },
+  notePreview: {
+    fontSize: '13px',
+    color: '#555',
+    fontStyle: 'italic',
+    maxWidth: '300px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+  },
+  addNoteButton: {
+    padding: '4px 12px',
+    backgroundColor: '#28a745',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontWeight: '500',
+  },
+  editNoteButton: {
+    padding: '4px 12px',
+    backgroundColor: '#17a2b8',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontWeight: '500',
   },
   lastUpdated: {
     fontSize: '12px',
@@ -645,15 +884,6 @@ const styles = {
     textAlign: 'center' as const,
     display: 'inline-block',
   },
-  previewButton: {
-    padding: '8px 12px',
-    backgroundColor: '#17a2b8',
-    color: 'white',
-    border: 'none',
-    borderRadius: '4px',
-    fontSize: '13px',
-    cursor: 'pointer',
-  },
   modal: {
     position: 'fixed' as const,
     top: 0,
@@ -670,7 +900,7 @@ const styles = {
   modalContent: {
     backgroundColor: 'white',
     borderRadius: '8px',
-    maxWidth: '900px',
+    maxWidth: '600px',
     width: '100%',
     maxHeight: '90vh',
     display: 'flex',
@@ -683,16 +913,6 @@ const styles = {
     alignItems: 'start',
     padding: '20px',
     borderBottom: '1px solid #e0e0e0',
-  },
-  modalSubject: {
-    fontSize: '14px',
-    color: '#666',
-    marginTop: '5px',
-  },
-  modalFrom: {
-    fontSize: '14px',
-    color: '#666',
-    marginTop: '5px',
   },
   closeButton: {
     background: 'none',
@@ -712,24 +932,40 @@ const styles = {
     overflow: 'auto' as const,
     flex: 1,
   },
-  previewIframe: {
+  noteTextarea: {
     width: '100%',
-    height: '600px',
-    border: '1px solid #e0e0e0',
+    padding: '12px',
+    border: '1px solid #ddd',
     borderRadius: '4px',
+    fontSize: '14px',
+    fontFamily: 'inherit',
+    resize: 'vertical' as const,
+    minHeight: '200px',
   },
   modalFooter: {
     padding: '20px',
     borderTop: '1px solid #e0e0e0',
     display: 'flex',
     justifyContent: 'flex-end',
+    gap: '10px',
   },
-  modalEditButton: {
+  cancelButton: {
     padding: '10px 20px',
-    backgroundColor: '#28a745',
+    backgroundColor: '#6c757d',
     color: 'white',
-    textDecoration: 'none',
+    border: 'none',
     borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: '500',
+  },
+  saveButton: {
+    padding: '10px 20px',
+    backgroundColor: '#007bff',
+    color: 'white',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
     fontSize: '14px',
     fontWeight: '500',
   },
