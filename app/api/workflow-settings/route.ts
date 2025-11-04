@@ -10,7 +10,9 @@ async function ensureDataDir() {
   const dataDir = path.join(process.cwd(), 'data');
   try {
     await fs.access(dataDir);
+    console.log('[Settings] Data directory exists:', dataDir);
   } catch {
+    console.log('[Settings] Creating data directory:', dataDir);
     await fs.mkdir(dataDir, { recursive: true });
   }
 }
@@ -19,33 +21,63 @@ async function ensureDataDir() {
 async function getSettings() {
   try {
     await ensureDataDir();
+    console.log('[Settings] Reading from:', SETTINGS_FILE);
     const data = await fs.readFile(SETTINGS_FILE, 'utf-8');
-    return JSON.parse(data);
-  } catch (error) {
+    const parsed = JSON.parse(data);
+    console.log('[Settings] Successfully read settings');
+    return parsed;
+  } catch (error: any) {
+    console.log('[Settings] File not found or error reading, returning defaults:', error.message);
     // Return default structure if file doesn't exist
-    return {
+    const defaults = {
       workflowOrder: [],
       workflowNotes: {},
       emailOrders: {}
     };
+    
+    // Try to create the file with defaults
+    try {
+      await ensureDataDir();
+      await fs.writeFile(SETTINGS_FILE, JSON.stringify(defaults, null, 2), 'utf-8');
+      console.log('[Settings] Created default settings file');
+    } catch (writeError: any) {
+      console.error('[Settings] Failed to create default file:', writeError.message);
+    }
+    
+    return defaults;
   }
 }
 
 // Save settings
 async function saveSettings(settings: any) {
-  await ensureDataDir();
-  await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
+  try {
+    await ensureDataDir();
+    console.log('[Settings] Saving to:', SETTINGS_FILE);
+    console.log('[Settings] Data to save:', JSON.stringify(settings, null, 2));
+    await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
+    console.log('[Settings] Successfully saved settings');
+    
+    // Verify the write
+    const verification = await fs.readFile(SETTINGS_FILE, 'utf-8');
+    console.log('[Settings] Verification read successful');
+    return true;
+  } catch (error: any) {
+    console.error('[Settings] Error saving settings:', error.message);
+    console.error('[Settings] Stack:', error.stack);
+    throw error;
+  }
 }
 
 // GET - Retrieve settings
 export async function GET(request: NextRequest) {
   try {
+    console.log('[Settings API] GET request received');
     const settings = await getSettings();
     return NextResponse.json(settings);
-  } catch (error) {
-    console.error('Error reading settings:', error);
+  } catch (error: any) {
+    console.error('[Settings API] Error in GET:', error.message);
     return NextResponse.json(
-      { error: 'Failed to read settings' },
+      { error: 'Failed to read settings', details: error.message },
       { status: 500 }
     );
   }
@@ -54,8 +86,12 @@ export async function GET(request: NextRequest) {
 // POST - Update settings
 export async function POST(request: NextRequest) {
   try {
+    console.log('[Settings API] POST request received');
     const body = await request.json();
+    console.log('[Settings API] Request body:', JSON.stringify(body, null, 2));
+    
     const currentSettings = await getSettings();
+    console.log('[Settings API] Current settings loaded');
     
     // Merge new settings with existing ones
     const updatedSettings = {
@@ -64,13 +100,17 @@ export async function POST(request: NextRequest) {
       emailOrders: body.emailOrders !== undefined ? { ...currentSettings.emailOrders, ...body.emailOrders } : currentSettings.emailOrders
     };
     
+    console.log('[Settings API] Merged settings:', JSON.stringify(updatedSettings, null, 2));
+    
     await saveSettings(updatedSettings);
     
+    console.log('[Settings API] Settings saved successfully');
     return NextResponse.json({ success: true, settings: updatedSettings });
-  } catch (error) {
-    console.error('Error saving settings:', error);
+  } catch (error: any) {
+    console.error('[Settings API] Error in POST:', error.message);
+    console.error('[Settings API] Stack:', error.stack);
     return NextResponse.json(
-      { error: 'Failed to save settings' },
+      { error: 'Failed to save settings', details: error.message },
       { status: 500 }
     );
   }

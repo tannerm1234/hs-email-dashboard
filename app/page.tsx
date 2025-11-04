@@ -313,6 +313,7 @@ export default function DashboardPage() {
   const [workflowOrder, setWorkflowOrder] = useState<string[]>([]);
   const [workflowNotes, setWorkflowNotes] = useState<Record<string, string>>({});
   const [showNoteModal, setShowNoteModal] = useState<string | null>(null);
+  const [savingStatus, setSavingStatus] = useState<string>('');
   const portalId = '6885872';
 
   // Drag and drop sensors
@@ -355,28 +356,36 @@ export default function DashboardPage() {
       
       // Fetch saved settings
       try {
+        console.log('[Frontend] Fetching saved settings...');
         const settingsResponse = await fetch('/api/workflow-settings');
+        console.log('[Frontend] Settings response status:', settingsResponse.status);
+        
         if (settingsResponse.ok) {
           const settings = await settingsResponse.json();
+          console.log('[Frontend] Loaded settings:', settings);
           
           // Apply saved workflow order or use alphabetical
           const workflowNames = Object.keys(grouped);
           if (settings.workflowOrder && settings.workflowOrder.length > 0) {
+            console.log('[Frontend] Applying saved workflow order');
             // Use saved order, adding any new workflows at the end
             const savedOrder = settings.workflowOrder.filter((name: string) => workflowNames.includes(name));
             const newWorkflows = workflowNames.filter((name: string) => !settings.workflowOrder.includes(name)).sort();
             setWorkflowOrder([...savedOrder, ...newWorkflows]);
           } else {
+            console.log('[Frontend] No saved order, using alphabetical');
             setWorkflowOrder(workflowNames.sort());
           }
           
           // Load saved notes
           if (settings.workflowNotes) {
+            console.log('[Frontend] Applying saved notes:', settings.workflowNotes);
             setWorkflowNotes(settings.workflowNotes);
           }
           
           // Apply saved email orders
           if (settings.emailOrders) {
+            console.log('[Frontend] Applying saved email orders');
             Object.keys(settings.emailOrders).forEach(workflowName => {
               if (grouped[workflowName]) {
                 const savedOrder = settings.emailOrders[workflowName];
@@ -410,13 +419,35 @@ export default function DashboardPage() {
 
   const saveSettings = async (updates: any) => {
     try {
-      await fetch('/api/workflow-settings', {
+      console.log('[Frontend] Saving settings:', updates);
+      setSavingStatus('Saving...');
+      
+      const response = await fetch('/api/workflow-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates)
       });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('[Frontend] Failed to save settings:', errorData);
+        setSavingStatus('❌ Save failed');
+        setTimeout(() => setSavingStatus(''), 3000);
+        alert('Failed to save settings. Check console for details.');
+        return false;
+      }
+      
+      const result = await response.json();
+      console.log('[Frontend] Settings saved successfully:', result);
+      setSavingStatus('✓ Saved');
+      setTimeout(() => setSavingStatus(''), 2000);
+      return true;
     } catch (error) {
-      console.error('Error saving settings:', error);
+      console.error('[Frontend] Error saving settings:', error);
+      setSavingStatus('❌ Save error');
+      setTimeout(() => setSavingStatus(''), 3000);
+      alert('Error saving settings. Check console for details.');
+      return false;
     }
   };
 
@@ -560,9 +591,20 @@ export default function DashboardPage() {
     <div style={styles.container}>
       <header style={styles.header}>
         <h1 style={styles.title}>HubSpot Workflow Emails</h1>
-        <button onClick={fetchDashboardData} style={styles.refreshButton}>
-          Refresh Data
-        </button>
+        <div style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
+          {savingStatus && (
+            <span style={{
+              fontSize: '14px',
+              color: savingStatus.includes('✓') ? '#28a745' : '#dc3545',
+              fontWeight: '500'
+            }}>
+              {savingStatus}
+            </span>
+          )}
+          <button onClick={fetchDashboardData} style={styles.refreshButton}>
+            Refresh Data
+          </button>
+        </div>
       </header>
 
       <div style={styles.stats}>
