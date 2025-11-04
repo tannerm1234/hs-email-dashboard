@@ -151,6 +151,7 @@ function SortableWorkflowGroup({
                     <SortableEmailRow
                       key={email.id}
                       email={email}
+                      workflowName={workflowName}
                       onSequenceChange={onSequenceChange}
                       onBodyToggle={onBodyToggle}
                       isBodyExpanded={expandedBodyPreviews.has(email.id)}
@@ -169,14 +170,16 @@ function SortableWorkflowGroup({
 
 // Sortable row component
 function SortableEmailRow({ 
-  email, 
+  email,
+  workflowName,
   onSequenceChange,
   onBodyToggle,
   isBodyExpanded,
   portalId
 }: { 
   email: any;
-  onSequenceChange: (id: string, sequence: number | null) => void;
+  workflowName: string;
+  onSequenceChange: (id: string, sequence: number | null, workflowName: string) => void;
   onBodyToggle: (id: string) => void;
   isBodyExpanded: boolean;
   portalId: string;
@@ -212,7 +215,7 @@ function SortableEmailRow({
             value={email.emailSequence || ''}
             onChange={(e) => {
               const val = e.target.value === '' ? null : parseInt(e.target.value);
-              onSequenceChange(email.id, val);
+              onSequenceChange(email.id, val, workflowName);
             }}
             style={styles.sequenceInput}
             placeholder="#"
@@ -400,6 +403,25 @@ export default function DashboardPage() {
               }
             });
           }
+          
+          // Apply saved email sequences
+          if (settings.emailSequences) {
+            console.log('[Frontend] Applying saved email sequences');
+            Object.keys(settings.emailSequences).forEach(workflowName => {
+              if (grouped[workflowName]) {
+                const savedSequences = settings.emailSequences[workflowName];
+                grouped[workflowName] = grouped[workflowName].map((email: any) => {
+                  if (savedSequences[email.id] !== undefined) {
+                    return {
+                      ...email,
+                      emailSequence: savedSequences[email.id]
+                    };
+                  }
+                  return email;
+                });
+              }
+            });
+          }
         } else {
           // No saved settings, use alphabetical order
           setWorkflowOrder(Object.keys(grouped).sort());
@@ -523,20 +545,28 @@ export default function DashboardPage() {
     });
   };
 
-  const handleSequenceChange = (emailId: string, sequence: number | null) => {
+  const handleSequenceChange = (emailId: string, sequence: number | null, workflowName: string) => {
     setEmailsByWorkflow(prev => {
       const newWorkflows = { ...prev };
       
-      for (const workflowName in newWorkflows) {
-        const emailIndex = newWorkflows[workflowName].findIndex(e => e.id === emailId);
-        if (emailIndex !== -1) {
-          newWorkflows[workflowName] = [...newWorkflows[workflowName]];
-          newWorkflows[workflowName][emailIndex] = {
-            ...newWorkflows[workflowName][emailIndex],
-            emailSequence: sequence
-          };
-          break;
-        }
+      const emailIndex = newWorkflows[workflowName].findIndex(e => e.id === emailId);
+      if (emailIndex !== -1) {
+        newWorkflows[workflowName] = [...newWorkflows[workflowName]];
+        newWorkflows[workflowName][emailIndex] = {
+          ...newWorkflows[workflowName][emailIndex],
+          emailSequence: sequence
+        };
+        
+        // Save sequence changes to backend
+        const emailSequences: Record<string, Record<string, number | null>> = {};
+        emailSequences[workflowName] = {};
+        newWorkflows[workflowName].forEach((email: any) => {
+          if (email.emailSequence !== null && email.emailSequence !== undefined) {
+            emailSequences[workflowName][email.id] = email.emailSequence;
+          }
+        });
+        
+        saveSettings({ emailSequences });
       }
       
       return newWorkflows;

@@ -1,117 +1,55 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
+import { neon } from '@neondatabase/serverless';
 
-// File to store workflow settings
-const SETTINGS_FILE = path.join(process.cwd(), 'data', 'workflow-settings.json');
+const sql = neon(process.env.DATABASE_URL!);
 
-// Ensure data directory exists
-async function ensureDataDir() {
-  const dataDir = path.join(process.cwd(), 'data');
+async function initTable() {
   try {
-    await fs.access(dataDir);
-    console.log('[Settings] Data directory exists:', dataDir);
-  } catch {
-    console.log('[Settings] Creating data directory:', dataDir);
-    await fs.mkdir(dataDir, { recursive: true });
+    await sql`
+      CREATE TABLE IF NOT EXISTS workflow_settings (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        data JSONB NOT NULL
+      )
+    `;
+    await sql`
+      INSERT INTO workflow_settings (id, data) 
+      VALUES (1, '{"workflowOrder":[],"workflowNotes":{},"emailOrders":{},"emailSequences":{}}')
+      ON CONFLICT (id) DO NOTHING
+    `;
+  } catch (e) {
+    console.error('Init error:', e);
   }
 }
 
-// Get current settings
-async function getSettings() {
+export async function GET() {
   try {
-    await ensureDataDir();
-    console.log('[Settings] Reading from:', SETTINGS_FILE);
-    const data = await fs.readFile(SETTINGS_FILE, 'utf-8');
-    const parsed = JSON.parse(data);
-    console.log('[Settings] Successfully read settings');
-    return parsed;
+    await initTable();
+    const result = await sql`SELECT data FROM workflow_settings WHERE id = 1`;
+    return NextResponse.json(result[0]?.data || {workflowOrder:[],workflowNotes:{},emailOrders:{},emailSequences:{}});
   } catch (error: any) {
-    console.log('[Settings] File not found or error reading, returning defaults:', error.message);
-    // Return default structure if file doesn't exist
-    const defaults = {
-      workflowOrder: [],
-      workflowNotes: {},
-      emailOrders: {}
-    };
-    
-    // Try to create the file with defaults
-    try {
-      await ensureDataDir();
-      await fs.writeFile(SETTINGS_FILE, JSON.stringify(defaults, null, 2), 'utf-8');
-      console.log('[Settings] Created default settings file');
-    } catch (writeError: any) {
-      console.error('[Settings] Failed to create default file:', writeError.message);
-    }
-    
-    return defaults;
+    console.error('GET error:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
-// Save settings
-async function saveSettings(settings: any) {
-  try {
-    await ensureDataDir();
-    console.log('[Settings] Saving to:', SETTINGS_FILE);
-    console.log('[Settings] Data to save:', JSON.stringify(settings, null, 2));
-    await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
-    console.log('[Settings] Successfully saved settings');
-    
-    // Verify the write
-    const verification = await fs.readFile(SETTINGS_FILE, 'utf-8');
-    console.log('[Settings] Verification read successful');
-    return true;
-  } catch (error: any) {
-    console.error('[Settings] Error saving settings:', error.message);
-    console.error('[Settings] Stack:', error.stack);
-    throw error;
-  }
-}
-
-// GET - Retrieve settings
-export async function GET(request: NextRequest) {
-  try {
-    console.log('[Settings API] GET request received');
-    const settings = await getSettings();
-    return NextResponse.json(settings);
-  } catch (error: any) {
-    console.error('[Settings API] Error in GET:', error.message);
-    return NextResponse.json(
-      { error: 'Failed to read settings', details: error.message },
-      { status: 500 }
-    );
-  }
-}
-
-// POST - Update settings
 export async function POST(request: NextRequest) {
   try {
-    console.log('[Settings API] POST request received');
+    await initTable();
     const body = await request.json();
-    console.log('[Settings API] Request body:', JSON.stringify(body, null, 2));
+    const current = await sql`SELECT data FROM workflow_settings WHERE id = 1`;
+    const currentData = current[0]?.data || {};
     
-    const currentSettings = await getSettings();
-    console.log('[Settings API] Current settings loaded');
-    
-    // Merge new settings with existing ones
-    const updatedSettings = {
-      workflowOrder: body.workflowOrder !== undefined ? body.workflowOrder : currentSettings.workflowOrder,
-      workflowNotes: body.workflowNotes !== undefined ? { ...currentSettings.workflowNotes, ...body.workflowNotes } : currentSettings.workflowNotes,
-      emailOrders: body.emailOrders !== undefined ? { ...currentSettings.emailOrders, ...body.emailOrders } : currentSettings.emailOrders
+    const updated = {
+      workflowOrder: body.workflowOrder ?? currentData.workflowOrder,
+      workflowNotes: body.workflowNotes ? {...currentData.workflowNotes, ...body.workflowNotes} : currentData.workflowNotes,
+      emailOrders: body.emailOrders ? {...currentData.emailOrders, ...body.emailOrders} : currentData.emailOrders,
+      emailSequences: body.emailSequences ? {...currentData.emailSequences, ...body.emailSequences} : currentData.emailSequences
     };
     
-    console.log('[Settings API] Merged settings:', JSON.stringify(updatedSettings, null, 2));
-    
-    await saveSettings(updatedSettings);
-    
-    console.log('[Settings API] Settings saved successfully');
-    return NextResponse.json({ success: true, settings: updatedSettings });
+    await sql`UPDATE workflow_settings SET data = ${JSON.stringify(updated)} WHERE id = 1`;
+    return NextResponse.json({ success: true, settings: updated });
   } catch (error: any) {
-    console.error('[Settings API] Error in POST:', error.message);
-    console.error('[Settings API] Stack:', error.stack);
-    return NextResponse.json(
-      { error: 'Failed to save settings', details: error.message },
-      { status: 500 }
-    );
+    console.error('POST error:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
