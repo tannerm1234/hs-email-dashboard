@@ -3,15 +3,22 @@ import { kv } from '@vercel/kv';
 
 const SETTINGS_KEY = 'workflow-settings';
 
+interface WorkflowSettings {
+  workflowOrder: string[];
+  workflowNotes: Record<string, string>;
+  emailOrders: Record<string, string[]>;
+  emailSequences: Record<string, number>;
+}
+
 // Get current settings
-async function getSettings() {
+async function getSettings(): Promise<WorkflowSettings> {
   try {
     console.log('[Settings] Reading from Vercel KV');
-    const settings = await kv.get(SETTINGS_KEY);
+    const settings = await kv.get<WorkflowSettings>(SETTINGS_KEY);
     
     if (!settings) {
       console.log('[Settings] No settings found, returning defaults');
-      const defaults = {
+      const defaults: WorkflowSettings = {
         workflowOrder: [],
         workflowNotes: {},
         emailOrders: {},
@@ -36,7 +43,7 @@ async function getSettings() {
 }
 
 // Save settings
-async function saveSettings(settings: any) {
+async function saveSettings(settings: WorkflowSettings): Promise<boolean> {
   try {
     console.log('[Settings] Saving to Vercel KV');
     console.log('[Settings] Data to save:', JSON.stringify(settings, null, 2));
